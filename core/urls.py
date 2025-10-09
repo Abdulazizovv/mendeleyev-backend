@@ -18,12 +18,14 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-from apps.botapp.views import health_check, bot_status
+from apps.botapp.views import health_check, bot_status, telegram_webhook
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('health/', health_check, name='health_check'),
     path('bot-status/', bot_status, name='bot_status'),
+    path('api/telegram/webhook/<str:token>', telegram_webhook, name='telegram_webhook_no_slash'),
+    path('api/telegram/webhook/<str:token>/', telegram_webhook, name='telegram_webhook'),
 ]
 
 # Serve media files during development

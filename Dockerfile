@@ -18,7 +18,8 @@ RUN apt-get update \
 
 # Install Python dependencies
 COPY requirements.txt /usr/src/app/
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
 # Copy project
 COPY . /usr/src/app/
@@ -26,11 +27,11 @@ COPY . /usr/src/app/
 # Create staticfiles directory
 RUN mkdir -p /usr/src/app/staticfiles
 
-# Collect static files
-# RUN python manage.py collectstatic --noinput || true
+# Make entrypoint executable
+RUN chmod +x /usr/src/app/docker/entrypoint.sh
 
 # Expose port
 EXPOSE 8000
 
-# run the application
-CMD ["gunicorn", "core.wsgi:application", "--bind", "0.0.0.0:8000"]
+# run the application with ASGI (async)
+ENTRYPOINT ["/usr/src/app/docker/entrypoint.sh"]
