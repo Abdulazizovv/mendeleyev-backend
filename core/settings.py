@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     # Local apps
     "apps.botapp",
     "apps.common",
+    "apps.branch",
 ]
 
 MIDDLEWARE = [
