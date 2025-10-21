@@ -21,7 +21,19 @@ class Command(BaseCommand):
 
         async def _set():
             try:
-                await bot.set_webhook(url=url, secret_token=secret, drop_pending_updates=options["drop_pending"])
+                allowed = [
+                    "message",
+                    "edited_message",
+                    "callback_query",
+                    "my_chat_member",
+                    "chat_member",
+                ]
+                await bot.set_webhook(
+                    url=url,
+                    secret_token=secret,
+                    drop_pending_updates=options["drop_pending"],
+                    allowed_updates=allowed,
+                )
                 await bot.delete_my_commands()  # reset before re-setting
                 from bot.utils.set_bot_commands import set_default_commands
                 await set_default_commands(bot)

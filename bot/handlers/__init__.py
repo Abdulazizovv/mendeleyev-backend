@@ -1,5 +1,6 @@
-from . import errors
-from . import admins
-from . import groups
-from . import users
-from . import channels
+"""Handlers package (no side-effect imports).
+
+Routers are registered explicitly from bot.routers.
+"""
+
+__all__ = []

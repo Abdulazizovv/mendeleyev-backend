@@ -1,9 +1,7 @@
-from aiogram import types
-from aiogram.dispatcher.filters import BoundFilter
-from bot.data import config
+from aiogram.filters import BaseFilter
+from aiogram.types import Message
 
 
-class IsGroup(BoundFilter):
-    async def check(self, message: types.Message):
-        if message.chat.type == 'group' or message.chat.type == 'supergroup':
-            return True
+class IsGroup(BaseFilter):
+    async def __call__(self, message: Message) -> bool:
+        return message.chat.type in ("group", "supergroup")
