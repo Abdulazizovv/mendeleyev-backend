@@ -8,19 +8,20 @@ from .models import Branch, BranchStatuses, BranchTypes
 @admin.register(Branch)
 class BranchAdmin(admin.ModelAdmin):
 	list_display = (
-		'name', 'type', 'status', 'phone_number', 'email', 'created_at', 'updated_at', 'deleted_badge'
+		'name', 'slug', 'type', 'status', 'phone_number', 'email', 'created_at', 'updated_at', 'deleted_badge'
 	)
 	list_filter = (
 		'type', 'status', 'created_at', 'updated_at'
 	)
-	search_fields = ('name', 'address', 'phone_number', 'email')
+	search_fields = ('name', 'slug', 'address', 'phone_number', 'email')
 	ordering = ('-created_at',)
 	date_hierarchy = 'created_at'
 	list_per_page = 50
 	readonly_fields = ('created_at', 'updated_at', 'deleted_at')
+	prepopulated_fields = {"slug": ("name",)}
 	fieldsets = (
 		(_('Asosiy ma\'lumotlar'), {
-			'fields': ('name', 'type', 'status')
+			'fields': ('name', 'slug', 'type', 'status')
 		}),
 		(_('Kontakt va manzil'), {
 			'fields': ('address', 'phone_number', 'email')

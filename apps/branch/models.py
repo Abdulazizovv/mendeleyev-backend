@@ -1,6 +1,7 @@
 from django.db import models
 from django.core.validators import RegexValidator
 from apps.common.models import BaseModel, BaseManager
+from django.utils.text import slugify
 
 
 class BranchTypes(models.TextChoices):
@@ -56,6 +57,13 @@ class Branch(BaseModel):
         verbose_name='Turi'
     )
 
+    slug = models.SlugField(
+        max_length=255,
+        unique=True,
+        verbose_name='Slug',
+        help_text='Filial uchun unikal nom (slug)'
+    )
+
     status = models.CharField(
         max_length=20,
         choices=BranchStatuses.choices,
@@ -89,3 +97,7 @@ class Branch(BaseModel):
             models.Index(fields=['name', 'type']),
         ]
     
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.name)
+        super().save(*args, **kwargs)
