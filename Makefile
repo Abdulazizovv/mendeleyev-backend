@@ -18,43 +18,43 @@ help:
 	@echo "  webhookinfo    - get current webhook info"
 
 build:
-	docker-compose build
+	docker compose build
 
 up:
-	docker-compose up -d
+	docker compose up -d
 
 down:
-	docker-compose down
+	docker compose down
 
 restart:
-	docker-compose restart django
+	docker compose restart django
 
 logs:
-	docker-compose logs -f --tail=200
+	docker compose logs -f --tail=200
 
 shell:
-	docker-compose exec django python manage.py shell
+	docker compose exec django python manage.py shell
 
 migrate:
-	docker-compose exec django python manage.py migrate
+	docker compose exec django python manage.py migrate
 
 createsuperuser:
-	docker-compose exec django python manage.py createsuperuser
+	docker compose exec django python manage.py createsuperuser
 
 collectstatic:
-	docker-compose exec django python manage.py collectstatic --noinput
+	docker compose exec django python manage.py collectstatic --noinput
 
 test:
-	docker-compose exec django python manage.py test -v 2
+	docker compose exec django python manage.py test -v 2
 
 lint:
-	- docker-compose exec django flake8 || true
+	- docker compose exec django flake8 || true
 
 setwebhook:
-	docker-compose exec django python manage.py setwebhook --drop-pending
+	docker compose exec django python manage.py setwebhook --drop-pending
 
 deletewebhook:
-	docker-compose exec django python manage.py deletewebhook
+	docker compose exec django python manage.py deletewebhook
 
 webhookinfo:
-	docker-compose exec django python manage.py webhookinfo
+	docker compose exec django python manage.py webhookinfo
