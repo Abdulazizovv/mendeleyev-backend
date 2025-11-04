@@ -231,6 +231,11 @@ LOGGING = {
         "default": _formatter,
         "requests": _formatter,
     },
+    "filters": {
+        "production_error_filter": {
+            "()": "apps.common.logging_handlers.ProductionErrorFilter",
+        }
+    },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
@@ -261,6 +266,11 @@ LOGGING = {
             "formatter": "default",
             "level": LOG_LEVEL,
         },
+        "telegram_admins": {
+            "class": "apps.common.logging_handlers.TelegramAdminHandler",
+            "level": "ERROR",
+            "filters": ["production_error_filter"],
+        },
     },
     "loggers": {
         "django": {
@@ -269,7 +279,7 @@ LOGGING = {
             "propagate": True,
         },
         "django.request": {
-            "handlers": ["console", "requests_file", "app_file"],
+            "handlers": ["console", "requests_file", "app_file", "telegram_admins"],
             "level": LOG_LEVEL,
             "propagate": False,
         },
@@ -279,12 +289,12 @@ LOGGING = {
             "propagate": False,
         },
         "apps": {
-            "handlers": ["console", "app_file"],
+            "handlers": ["console", "app_file", "telegram_admins"],
             "level": LOG_LEVEL,
             "propagate": False,
         },
         "celery": {
-            "handlers": ["console", "celery_file"],
+            "handlers": ["console", "celery_file", "telegram_admins"],
             "level": LOG_LEVEL,
             "propagate": False,
         },
@@ -293,6 +303,9 @@ LOGGING = {
 
 # Celery logging preferences
 CELERY_WORKER_HIJACK_ROOT_LOGGER = False
+
+# Error alerting toggle (default: enabled in production only)
+ERROR_ALERTS_ENABLED = env.bool("ERROR_ALERTS_ENABLED", default=not DEBUG)
 
 # Celery configuration
 CELERY_BROKER_URL = env.str(
