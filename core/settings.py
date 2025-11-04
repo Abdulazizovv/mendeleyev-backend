@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import environs
 import dj_database_url
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -70,6 +71,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "apps.common.middlewares.request_logging.RequestLoggingMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -206,6 +208,91 @@ SPECTACULAR_SETTINGS = {
     # Optional additions
     "SCHEMA_PATH_PREFIX": "/api/v1",
 }
+
+# Logging configuration
+LOG_LEVEL = env.str("LOG_LEVEL", default="INFO").upper()
+LOG_FORMAT = env.str("LOG_FORMAT", default="text").lower()  # "json" | "text"
+LOG_DIR = BASE_DIR / "logs"
+os.makedirs(LOG_DIR, exist_ok=True)
+
+_json_formatter = {
+    "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
+}
+_text_formatter = {
+    "format": "%(asctime)s %(levelname)s [%(name)s:%(lineno)s] %(message)s",
+}
+
+_formatter = _json_formatter if LOG_FORMAT == "json" else _text_formatter
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "default": _formatter,
+        "requests": _formatter,
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "default",
+            "level": LOG_LEVEL,
+        },
+        "app_file": {
+            "class": "logging.handlers.TimedRotatingFileHandler",
+            "filename": str(LOG_DIR / "app.log"),
+            "when": "midnight",
+            "backupCount": 14,
+            "formatter": "default",
+            "level": LOG_LEVEL,
+        },
+        "requests_file": {
+            "class": "logging.handlers.TimedRotatingFileHandler",
+            "filename": str(LOG_DIR / "requests.log"),
+            "when": "midnight",
+            "backupCount": 14,
+            "formatter": "requests",
+            "level": LOG_LEVEL,
+        },
+        "celery_file": {
+            "class": "logging.handlers.TimedRotatingFileHandler",
+            "filename": str(LOG_DIR / "celery.log"),
+            "when": "midnight",
+            "backupCount": 14,
+            "formatter": "default",
+            "level": LOG_LEVEL,
+        },
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console", "app_file"],
+            "level": LOG_LEVEL,
+            "propagate": True,
+        },
+        "django.request": {
+            "handlers": ["console", "requests_file", "app_file"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+        "django.db.backends": {
+            "handlers": ["console"],
+            "level": os.getenv("DJANGO_DB_LOG_LEVEL", "WARNING"),
+            "propagate": False,
+        },
+        "apps": {
+            "handlers": ["console", "app_file"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+        "celery": {
+            "handlers": ["console", "celery_file"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+    },
+}
+
+# Celery logging preferences
+CELERY_WORKER_HIJACK_ROOT_LOGGER = False
 
 # Celery configuration
 CELERY_BROKER_URL = env.str(

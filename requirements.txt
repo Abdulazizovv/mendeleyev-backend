@@ -28,3 +28,4 @@ httpx==0.27.2
 dj-database-url==2.2.0
 celery==5.4.0
 django-celery-results==2.5.1
+python-json-logger==2.0.7
