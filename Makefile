@@ -16,6 +16,10 @@ help:
 	@echo "  setwebhook     - set Telegram webhook"
 	@echo "  deletewebhook  - delete Telegram webhook"
 	@echo "  webhookinfo    - get current webhook info"
+	@echo "  celery         - run celery worker (docker compose)"
+	@echo "  celery-beat    - run celery beat (docker compose)"
+	@echo "  celery-logs    - follow celery worker logs"
+	@echo "  beat-logs      - follow celery beat logs"
 
 build:
 	docker compose build
@@ -58,3 +62,15 @@ deletewebhook:
 
 webhookinfo:
 	docker compose exec django python manage.py webhookinfo
+
+celery:
+	docker compose up -d celery
+
+celery-beat:
+	docker compose up -d celery-beat
+
+celery-logs:
+	docker compose logs -f celery
+
+beat-logs:
+	docker compose logs -f celery-beat

@@ -21,6 +21,7 @@ Ushbu hujjatlar Mendeleyev backend loyihasining arxitekturasi, ishga tushirish j
 - Ma'lumotlar bazasi: [database.md](database.md)
 - Xavfsizlik: [security.md](security.md)
 - Telegram bot webhook: [bot.md](bot.md)
+- Celery (async jobs): [celery.md](celery.md)
 - Deployment: [deployment.md](deployment.md)
 - Testlar: [testing.md](testing.md)
 - Hissa qo'shish: [contributing.md](contributing.md)

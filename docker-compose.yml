@@ -15,6 +15,7 @@ services:
       - "8001:8000"
     depends_on:
       - db
+      - redis
 
   db:
     image: postgres:15-alpine
@@ -39,6 +40,36 @@ services:
     restart: unless-stopped
     ports:
       - "6379:6379"
+
+  celery:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: celery
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - .:/usr/src/app
+    depends_on:
+      - db
+      - redis
+    entrypoint: ["celery", "-A", "core", "worker", "-l", "info", "--concurrency=2"]
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: celery_beat
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - .:/usr/src/app
+    depends_on:
+      - db
+      - redis
+    entrypoint: ["celery", "-A", "core", "beat", "-l", "info"]
 
   nginx:
     image: nginx:1.21-alpine

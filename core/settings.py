@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     # Third-party
     "rest_framework",
     "drf_spectacular",
+    "django_celery_results",
     # Local apps
     "apps.botapp",
     "apps.common",
@@ -205,3 +206,21 @@ SPECTACULAR_SETTINGS = {
     # Optional additions
     "SCHEMA_PATH_PREFIX": "/api/v1",
 }
+
+# Celery configuration
+CELERY_BROKER_URL = env.str(
+    "CELERY_BROKER_URL",
+    default=f"redis://{env.str('REDIS_HOST', 'redis')}:{env.int('REDIS_PORT', 6379)}/{env.int('REDIS_DB', 0)}",
+)
+
+CELERY_RESULT_BACKEND = env.str(
+    "CELERY_RESULT_BACKEND",
+    default=f"redis://{env.str('REDIS_HOST', 'redis')}:{env.int('REDIS_PORT', 6379)}/{env.int('REDIS_DB', 0)}",
+)
+
+CELERY_TASK_TIME_LIMIT = env.int("CELERY_TASK_TIME_LIMIT", 60 * 10)  # hard limit 10m
+CELERY_TASK_SOFT_TIME_LIMIT = env.int("CELERY_TASK_SOFT_TIME_LIMIT", 60 * 5)  # soft 5m
+CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_TASK_ALWAYS_EAGER", False)
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_ENABLE_UTC = USE_TZ
