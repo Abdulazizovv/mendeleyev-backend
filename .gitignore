@@ -176,6 +176,7 @@ static/
 test.py
 data.json
 *.log
+logs/
 
 
 *.sock
