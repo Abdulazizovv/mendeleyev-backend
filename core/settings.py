@@ -62,6 +62,8 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "django_celery_results",
     # Local apps
+    "auth.users",
+    "auth.profiles",
     "apps.botapp",
     "apps.common",
     "apps.branch",
@@ -209,6 +211,9 @@ SPECTACULAR_SETTINGS = {
     "SCHEMA_PATH_PREFIX": "/api/v1",
 }
 
+# Custom user model
+AUTH_USER_MODEL = "users.User"
+
 # Logging configuration
 LOG_LEVEL = env.str("LOG_LEVEL", default="INFO").upper()
 LOG_FORMAT = env.str("LOG_FORMAT", default="text").lower()  # "json" | "text"
@@ -324,3 +329,21 @@ CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_TASK_ALWAYS_EAGER", False)
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_ENABLE_UTC = USE_TZ
+
+# OTP settings (Redis-backed)
+OTP_CODE_TTL_SECONDS = env.int("OTP_CODE_TTL_SECONDS", 120)  # 2 minutes
+OTP_REQUEST_COOLDOWN_SECONDS = env.int("OTP_REQUEST_COOLDOWN_SECONDS", 60)  # 1 minute
+OTP_MAX_ATTEMPTS = env.int("OTP_MAX_ATTEMPTS", 5)
+OTP_CODE_LENGTH = env.int("OTP_CODE_LENGTH", 6)
+OTP_REDIS_PREFIX = env.str("OTP_REDIS_PREFIX", "otp")
+
+# SimpleJWT lifetimes (can be tuned via env)
+from datetime import timedelta
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=env.int("JWT_ACCESS_MINUTES", 15)),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=env.int("JWT_REFRESH_DAYS", 30)),
+    "ROTATE_REFRESH_TOKENS": False,
+    "BLACKLIST_AFTER_ROTATION": False,
+    "ALGORITHM": env.str("JWT_ALGORITHM", "HS256"),
+    "SIGNING_KEY": SECRET_KEY,
+}

@@ -80,3 +80,28 @@ def send_telegram_alert_task(self, text: str, chat_ids: Optional[List[str]] = No
                 except Exception as e:
                     # let autoretry handle transient failures
                     raise e
+
+
+@shared_task(bind=True)
+def send_unknown_phone_attempt_task(self, phone: str) -> None:
+    """Notify admins that an unknown phone tried to access the system (Uzbek message).
+
+    Per-phone throttle for a short window to avoid spam.
+    """
+    # Per-phone throttling (5 minutes)
+    try:
+        r = _get_redis()
+        if r is not None:
+            key = f"unknown_phone_attempt:{phone}"
+            if r.exists(key):
+                return
+            r.set(key, "1", ex=int(os.getenv("UNKNOWN_PHONE_TTL", "300")))
+    except Exception:
+        pass
+
+    text = (
+        "Noma'lum telefon raqami bilan tizimga kirish urinish aniqlandi.\n"
+        f"Telefon: {phone}\n"
+        "Agar bu foydalanuvchi tizimga qo'shilishi kerak bo'lsa, iltimos admin paneldan yaratib bering."
+    )
+    send_telegram_alert_task.delay(text)

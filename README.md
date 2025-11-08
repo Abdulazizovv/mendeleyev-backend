@@ -1,113 +1,88 @@
-# Django + Aiogram v3 Webhook Template
+<div align="center">
 
-A production-ready template combining Django (5.x) and Aiogram v3 using webhooks (no polling). Includes Docker, Nginx, PostgreSQL, Redis, management commands, tests, and CI scaffold.
+# Mendeleyev Backend
 
-## Features
-- Async Django webhook endpoint: `/api/telegram/webhook/<token>/`
-- Telegram secret token header verification
-- Aiogram v3 routers structure
-- Management commands: `setwebhook`, `deletewebhook`
-- Dockerized stack: Django + Postgres + Redis + Nginx
-- Example Nginx config and `.env.example`
-- Sample test for webhook
+Ta'lim platformasi uchun filiallar (branch), foydalanuvchilar va rollarni (RBAC) boshqarishga mo'ljallangan Django + DRF backend.
 
-## Quickstart
+</div>
 
-1) Copy environment file
+## Umumiy ma'lumot
+Mendeleyev bir nechta filiallarni boshqaradi. Foydalanuvchilar filial(lar)ga rollar (teacher, branch_admin, student, parent, super_admin) bilan biriktiriladi. Autentifikatsiya telefon raqami orqali OTP tasdiqlash va parol bilan amalga oshiriladi. Oddiy foydalanuvchilar tokenlari tanlangan filialga scope qilinadi (JWT claims: `br`, `br_role`), admin/superadmin esa global token oladi yoki ixtiyoriy ravishda filialga scope qilishi mumkin.
 
-```bash
-cp .env.example .env
-```
+### Asosiy imkoniyatlar
+- Telefon raqami + OTP verifikatsiya, parol o'rnatish va login holatlari (NOT_VERIFIED, NEEDS_PASSWORD, READY, MULTI_BRANCH, NO_BRANCH)
+- Branch-scoped JWT (SimpleJWT) — `br`, `br_role` claims
+- RBAC: `BranchRole` (super_admin, branch_admin, teacher, student, parent)
+- Celery + Redis: OTP yuborish, ma'murlarga xabar berish, background vazifalar
+- Aiogram v3: Telegram bot (webhook)
+- DRF + drf-spectacular: OpenAPI schema va Swagger UI
+- Structured logging, ixtiyoriy Telegram error alertlar
 
-Fill required values:
-- BOT_TOKEN
-- TELEGRAM_WEBHOOK_DOMAIN (e.g. https://<your-domain> or https://<ngrok-url>)
-- TELEGRAM_WEBHOOK_SECRET
-- DB credentials
-- ALLOWED_HOSTS
+### Stack
+- Python 3.11+, Django 5.x, DRF
+- PostgreSQL, Redis, Celery
+- SimpleJWT, Aiogram v3
+- Nginx (reverse proxy), Docker Compose
 
-2) Run database migrations
-
-```bash
-# Local host
-python manage.py migrate
-```
-
-Or using Docker:
+## Tez boshlash (Docker)
+Quyidagi buyruqlar bilan loyihani ishga tushiring:
 
 ```bash
-# Build and start services
-docker-compose up -d --build
-# Apply migrations inside the django container
-docker-compose exec django python manage.py migrate
+cp .env.example .env          # Muhit sozlamalarini to'ldiring
+make build                    # Image larni build qilish
+make up                       # Servislarni ko'tarish (django, db, redis, nginx, celery...)
+make migrate                  # Django migratsiyalar
+make createsuperuser          # Superuser yaratish
+# Ixtiyoriy: Telegram webhook
+make setwebhook
+
+# Testlar (auth + branch + bot webhook)
+make test
 ```
 
-3) Set webhook
+Swagger/Redoc:
+- Swagger UI: `/api/docs/`
+- ReDoc: `/api/redoc/`
+- OpenAPI schema: `/api/schema/`
+
+## Muhit o'zgaruvchilari (asosiylari)
+| O'zgaruvchi | Tavsif |
+|---|---|
+| DJANGO_SECRET_KEY | Majburiy. Django uchun yashirin kalit |
+| DEBUG | `true/false` |
+| DATABASE_URL yoki POSTGRES_* | PostgreSQL ulanishi (yoki `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `DB_HOST`, `DB_PORT`) |
+| REDIS_* | Redis (`REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`) |
+| BOT_TOKEN | Telegram bot token |
+| TELEGRAM_WEBHOOK_DOMAIN | Webhook public domeni |
+| TELEGRAM_WEBHOOK_SECRET | Webhook request sirlari (header) |
+| ALLOWED_HOSTS | Ruxsat etilgan xostlar (vergul bilan) |
+| ERROR_ALERTS_ENABLED | Prod xatoliklarini Telegramga yuborish `true/false` |
+
+Qo'shimcha sozlamalar: `LOG_FORMAT`, SimpleJWT lifetime'lari, OTP (`OTP_CODE_TTL_SECONDS`, `OTP_REQUEST_COOLDOWN_SECONDS`, ...) — batafsil `docs/` ga qarang.
+
+## API va hujjatlar
+- Markaziy hujjatlar: `docs/index.md`
+- Auth va branch flow: `docs/architecture/auth-flow.md`
+- API Overview: `docs/api/overview.md`, Auth: `docs/api/auth.md`, Branch: `docs/api/branch.md`
+- Testing: `docs/testing.md`
+
+## Testlar
+`make test` quyidagi test paketlarini ishga tushiradi: `auth.users.tests`, `apps.botapp.tests`.
+Modul/klass/donani alohida ishlatish:
 
 ```bash
-# Ensure TELEGRAM_WEBHOOK_DOMAIN and TELEGRAM_WEBHOOK_SECRET are set in .env
-python manage.py setwebhook --drop-pending
-# Docker
-docker-compose exec django python manage.py setwebhook --drop-pending
+docker compose exec django python manage.py test auth.users.tests.test_auth_flow -v 2
+docker compose exec django python manage.py test auth.users.tests.test_branch_jwt -v 2
+docker compose exec django python manage.py test apps.botapp.tests -v 2
 ```
 
-4) Test webhook via ngrok (local dev)
+## Minimal arxitektura
+- Django monolit: `auth/` (users, profiles), `apps/` (branch, botapp, common)
+- JWT (SimpleJWT) — branch-scope, refreshda scope validatsiyasi
+- Celery + Redis — OTP va alertlar
+- Telegram webhook — Aiogram v3
 
-- Install ngrok and run:
+## Litsenziya va aloqa
+Hozircha ichki loyiha (private). Keyinchalik OSS litsenziyasi qo'shilishi mumkin.
 
-```bash
-ngrok http http://localhost:8001
-```
-
-- Copy the HTTPS URL (e.g. `https://abcd1234.ngrok.io`).
-- Put it into `.env` as TELEGRAM_WEBHOOK_DOMAIN, keep TELEGRAM_WEBHOOK_PATH as default `/api/telegram/webhook`.
-- Re-run `setwebhook`.
-
-5) Delete webhook when needed
-
-```bash
-python manage.py deletewebhook
-```
-
-## Development
-
-- Code entry points:
-  - Webhook view: `apps/botapp/views.py: telegram_webhook`
-  - Aiogram bot/dispatcher: `bot/bot.py`, `bot/dispatcher.py`, `bot/routers/__init__.py`
-- Add new handlers by creating new routers and including them in `bot/routers`.
-
-## Security
-- Webhook verifies `X-Telegram-Bot-Api-Secret-Token` header.
-- CSRF is disabled only for the webhook view.
-- Production security flags enabled when `DEBUG=false`.
-
-## CI
-- Add your GitHub Actions workflow under `.github/workflows/ci.yml` (not provided by default in this template but suggested below).
-
-## Suggested Make targets (optional)
-
-```Makefile
-run:
-	python manage.py runserver 0.0.0.0:8000
-
-migrate:
-	python manage.py migrate
-
-setwebhook:
-	python manage.py setwebhook --drop-pending
-
-deletewebhook:
-	python manage.py deletewebhook
-
-test:
-	python manage.py test
-```
-
-## Notes
-- Python 3.10+
-- Aiogram v3
-- Django 5.x
-
-***
-
-Happy building!
+Savollar/takliflar uchun loyiha adminiga murojaat qiling.

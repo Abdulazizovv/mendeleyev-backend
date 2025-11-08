@@ -1,30 +1,32 @@
-# Mendeleyev — Ta'lim boshqaruv platformasi
+# Mendeleyev Backend — Documentation
 
-Ushbu hujjatlar Mendeleyev backend loyihasining arxitekturasi, ishga tushirish jarayoni, API dizayni, xavfsizlik siyosati va rivojlanish yo'l xaritasini qamrab oladi. Backend Django + DRF + PostgreSQL asosida, autentifikatsiya telefon raqami va OTP orqali, JWT (SimpleJWT) bilan.
-
-- Loyihaning maqsadi: filiallar (School/Learning Center), o'qituvchilar, talabalar va adminlarni RBAC asosida boshqarish.
-- MVP fokus: Branch app, OTP autentifikatsiya, JWT, minimal RBAC, Swagger (drf-spectacular), Telegram bot webhook.
-
-## Tez start
-
-- Docker bilan ishlatish: `README.md` dagi Quickstart bo'limiga qarang.
-- Muhit: `.env.example` ni `.env` ga ko'chiring va qiymatlarni to'ldiring.
+Ushbu hujjatlar arxitektura, API, xavfsizlik, testlar va ekspluatatsiya bo'yicha to'liq ko'rsatma beradi. Frontend va AI-agentlar uchun integratsiya bo'limlari ham mavjud. Qisqa tavsif va Quickstart uchun root `README.md` ni ko'ring.
 
 ## Navigatsiya
 
-- Arxitektura: [architecture.md](architecture.md)
-- Backend setup (dev): [backend-setup.md](backend-setup.md)
-- API (v1): [api/index.md](api/index.md)
-  - Auth/OTP/JWT: [api/auth.md](api/auth.md)
-  - Filiallar (Branch): [api/branch.md](api/branch.md)
-- RBAC va ruxsatlar: [permissions-rbac.md](permissions-rbac.md)
-- Ma'lumotlar bazasi: [database.md](database.md)
-- Xavfsizlik: [security.md](security.md)
-- Telegram bot webhook: [bot.md](bot.md)
-- Celery (async jobs): [celery.md](celery.md)
-- Logging: [logging.md](logging.md)
-- Deployment: [deployment.md](deployment.md)
-- Testlar: [testing.md](testing.md)
-- Hissa qo'shish: [contributing.md](contributing.md)
-- Makefile qo'llanma: [makefile.md](makefile.md)
-- Roadmap: [roadmap.md](roadmap.md)
+- Arxitektura
+  - [Umumiy ko'rinish](./architecture/overview.md)
+  - [Xizmatlar va komponentlar](./architecture/services.md)
+  - [Ma'lumotlar modeli (ER)](./architecture/data-model.md)
+  - [Auth & Branch flow diagrammalari](./architecture/auth-flow.md)
+- API
+  - [Index (v1)](./api/index.md)
+  - [Umumiy qoidalar](./api/overview.md)
+  - [Auth (OTP, parol, branch-scoped JWT)](./api/auth.md)
+  - [Branch](./api/branch.md)
+  - [Profile](./api/profile.md)
+- Integratsiya
+  - [Frontend auth integratsiyasi](./frontend/auth-integration.md)
+- Ishga tushirish va infra
+  - [Setup (Docker Compose, env)](./setup.md)
+  - [Deployment](./deployment.md)
+  - [Testlar va coverage](./testing.md)
+  - [Logging](./logging.md)
+  - [Celery](./celery.md)
+  - [Telegram bot](./bot.md)
+  - [Xavfsizlik](./security.md)
+- Jamiyat va jarayon
+  - [Contributing](./contributing.md)
+  - [Makefile qo'llanma](./makefile.md)
+  - [Roadmap](./roadmap.md)
+

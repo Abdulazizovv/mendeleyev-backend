@@ -27,6 +27,10 @@ urlpatterns = [
     path('bot-status/', bot_status, name='bot_status'),
     path('api/telegram/webhook/<str:token>', telegram_webhook, name='telegram_webhook_no_slash'),
     path('api/telegram/webhook/<str:token>/', telegram_webhook, name='telegram_webhook'),
+    # Auth v1
+    path('api/v1/auth/', include('auth.users.urls')),
+    # Profile v1
+    path('api/v1/profile/', include('auth.profiles.urls')),
     # API Schema & Docs
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
