@@ -49,7 +49,8 @@ collectstatic:
 	docker compose exec django python manage.py collectstatic --noinput
 
 test:
-	docker compose exec django python manage.py test -v 2
+	# Explicit test labels to avoid discovery import ambiguity
+	docker compose exec django python manage.py test auth.users.tests apps.botapp.tests -v 2
 
 lint:
 	- docker compose exec django flake8 || true
