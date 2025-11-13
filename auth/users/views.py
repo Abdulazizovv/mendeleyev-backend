@@ -110,12 +110,11 @@ class RefreshTokenView(TokenRefreshView):
             except Exception:
                 return Response({"detail": "Invalid user"}, status=status.HTTP_401_UNAUTHORIZED)
             if not (user.is_superuser or user.is_staff):
-                from apps.branch.models import Branch
-                from auth.users.models import UserBranch
-                if not Branch.objects.filter(id=br, status="active").exists():
-                    return Response({"detail": "Branch inactive or removed"}, status=status.HTTP_401_UNAUTHORIZED)
-                if not UserBranch.objects.filter(user_id=user.id, branch_id=br).exists():
-                    return Response({"detail": "Membership revoked"}, status=status.HTTP_401_UNAUTHORIZED)
+                    from apps.branch.models import Branch, BranchMembership
+                    if not Branch.objects.filter(id=br, status="active").exists():
+                        return Response({"detail": "Branch inactive or removed"}, status=status.HTTP_401_UNAUTHORIZED)
+                    if not BranchMembership.objects.filter(user_id=user.id, branch_id=br).exists():
+                        return Response({"detail": "Membership revoked"}, status=status.HTTP_401_UNAUTHORIZED)
         access = token.access_token
         if br:
             access["br"] = br
@@ -229,8 +228,8 @@ class LoginView(generics.GenericAPIView):
             })
 
         # Non-admin: require active branch membership
-        from auth.users.models import UserBranch
-        qs = UserBranch.objects.select_related("branch").filter(user_id=user.id, branch__status="active")
+        from apps.branch.models import BranchMembership
+        qs = BranchMembership.objects.select_related("branch").filter(user_id=user.id, branch__status="active")
         memberships = list(qs)
         if len(memberships) == 0:
             return Response({"state": "NO_BRANCH"}, status=status.HTTP_200_OK)
@@ -243,7 +242,7 @@ class LoginView(generics.GenericAPIView):
             chosen = memberships[0]
         else:
             from .serializers import BranchMembershipSerializer
-            data = [BranchMembershipSerializer.from_userbranch(m) for m in memberships]
+            data = [BranchMembershipSerializer.from_membership(m) for m in memberships]
             return Response({"state": "MULTI_BRANCH", "branches": data}, status=status.HTTP_200_OK)
 
         # Issue branch-scoped tokens (with role)
@@ -446,14 +445,14 @@ class MyBranchesView(generics.GenericAPIView):
 
     @extend_schema(responses={200: dict}, summary="List current user's branch memberships")
     def get(self, request, *args, **kwargs):
-        from auth.users.models import UserBranch
+        from apps.branch.models import BranchMembership
         qs = (
-            UserBranch.objects
+            BranchMembership.objects
             .select_related("branch")
             .filter(user_id=request.user.id)
             .order_by("branch__name")
         )
-        data = [BranchMembershipSerializer.from_userbranch(m) for m in qs]
+        data = [BranchMembershipSerializer.from_membership(m) for m in qs]
         return Response({"results": data, "count": len(data)})
 
 
@@ -489,10 +488,10 @@ class SwitchBranchView(generics.GenericAPIView):
             new_access["br"] = branch_id
             return Response({"access": str(new_access), "refresh": str(new_refresh), "br": branch_id})
         # regular user: must have active membership
-        from auth.users.models import UserBranch
+        from apps.branch.models import BranchMembership
         if not Branch.objects.filter(id=branch_id, status="active").exists():
             return Response({"detail": "Branch inactive or removed"}, status=status.HTTP_400_BAD_REQUEST)
-        mem = UserBranch.objects.filter(user_id=user.id, branch_id=branch_id).first()
+        mem = BranchMembership.objects.filter(user_id=user.id, branch_id=branch_id).first()
         if not mem:
             return Response({"detail": "Membership not found"}, status=status.HTTP_403_FORBIDDEN)
         new_refresh = RefreshToken.for_user(user)

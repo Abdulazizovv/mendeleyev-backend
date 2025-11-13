@@ -119,7 +119,13 @@ class BranchRole(models.TextChoices):
 
 
 class UserBranch(BaseModel):
-	"""Membership of a user in a specific branch with an assigned role."""
+	"""Deprecated legacy membership model.
+
+	Phase 3 RBAC: `apps.branch.models.BranchMembership` is now the canonical
+	model. This class remains for backward compatibility and is unmanaged.
+	Direct instantiation will emit a DeprecationWarning; queries still work
+	against the shared underlying table.
+	"""
 
 	user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='user_branches')
 	branch = models.ForeignKey('branch.Branch', on_delete=models.CASCADE, related_name='user_branches')
@@ -128,17 +134,26 @@ class UserBranch(BaseModel):
 
 	class Meta:
 		unique_together = ("user", "branch")
-		verbose_name = "Foydalanuvchi-filial roli"
-		verbose_name_plural = "Foydalanuvchi-filial rollari"
+		verbose_name = "Foydalanuvchi-filial roli (deprecated)"
+		verbose_name_plural = "Foydalanuvchi-filial rollari (deprecated)"
 		indexes = [
 			models.Index(fields=["branch", "role"]),
 			models.Index(fields=["user", "role"]),
 		]
+		managed = False  # Prevent new migrations; table maintained by BranchMembership
+
+	def __init__(self, *args, **kwargs):  # pragma: no cover - warning path
+		import warnings
+		warnings.warn(
+			"UserBranch is deprecated; use apps.branch.models.BranchMembership instead.",
+			DeprecationWarning,
+			stacklevel=2,
+		)
+		super().__init__(*args, **kwargs)
 
 	def __str__(self) -> str:  # pragma: no cover - trivial
 		return f"{self.user.phone_number} @ {self.branch_id} ({self.get_role_display()})"
 
-	# Small helpers
 	@classmethod
 	def for_user_and_branch(cls, user_id, branch_id):
 		return cls.objects.filter(user_id=user_id, branch_id=branch_id).first()

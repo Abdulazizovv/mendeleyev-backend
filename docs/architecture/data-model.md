@@ -37,9 +37,22 @@ erDiagram
   }
 ```
 
-- `User.phone_number` — unique, login identifikatori.
-- `User.phone_verified` — OTP tasdiqlash flagi.
-- `Branch.status` — `pending|active|inactive|archived`. JWT scope faqat `active` uchun.
-- `UserBranch.role` — `super_admin|branch_admin|teacher|student|parent`.
 
 Qo'shimcha entitilar (keyinchalik): darslar, fanlar, jadval, baholash, to'lovlar va h.k.
+
+### BranchMembership (Finalized Model)
+
+- Replaces legacy `UserBranch` as the canonical RBAC link between User, Branch, and Role.
+- Compatible with JWT branch claims (`br`, `br_role`) and server-side permissions.
+- Used by role-specific profiles: TeacherProfile, StudentProfile, ParentProfile, AdminProfile.
+  Existing profile relations continue functioning via the shared membership row.
+
+#### AdminProfile
+
+- One-to-one with membership row (linked via legacy `users.UserBranch` concrete model for compatibility).
+- Fields:
+  - is_super_admin: bool — true when role is `super_admin`.
+  - managed_branches: M2M to Branch — optional UI scoping list for branch_admins.
+  - title, notes: optional display fields.
+- Provisioning strategy: auto-created by signals on membership save if role in {branch_admin, super_admin}.
+  Role transitions are handled idempotently; previous role profiles are kept. TODO: future soft-delete policy.

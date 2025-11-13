@@ -1,6 +1,7 @@
 from django.db import models
 from django.core.validators import RegexValidator
 from apps.common.models import BaseModel, BaseManager
+from auth.users.models import UserBranch
 from django.utils.text import slugify
 
 
@@ -101,3 +102,16 @@ class Branch(BaseModel):
         if not self.slug:
             self.slug = slugify(self.name)
         super().save(*args, **kwargs)
+
+
+class BranchMembership(UserBranch):
+    """Canonical proxy for membership; use this import moving forward.
+
+    Remains a proxy to avoid schema and relation changes; all reverse relations
+    and signals continue to work via the underlying UserBranch model.
+    """
+
+    class Meta:
+        proxy = True
+        verbose_name = "Branch membership"
+        verbose_name_plural = "Branch memberships"

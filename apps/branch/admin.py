@@ -3,6 +3,8 @@ from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
 from .models import Branch, BranchStatuses, BranchTypes
+from .models import BranchMembership
+from auth.profiles.models import AdminProfile
 
 
 @admin.register(Branch)
@@ -77,4 +79,29 @@ class BranchAdmin(admin.ModelAdmin):
 			obj.hard_delete()
 			count += 1
 		self.message_user(request, _(f"{count} ta filial butunlay o\'chirildi"))
+
+
+class AdminProfileInline(admin.StackedInline):
+	"""Inline to display/edit AdminProfile on a membership page.
+
+	Note: AdminProfile links to the underlying concrete model (users.UserBranch), which this
+	proxy admin still represents. Django admin supports inlines for proxies that point to the
+	same base table, so this works without migrations.
+	"""
+
+	model = AdminProfile
+	extra = 0
+	can_delete = True
+	fk_name = "user_branch"
+	fields = ("is_super_admin", "managed_branches", "title", "notes")
+	filter_horizontal = ("managed_branches",)
+
+
+@admin.register(BranchMembership)
+class BranchMembershipAdmin(admin.ModelAdmin):
+	list_display = ("user", "branch", "role", "title", "created_at")
+	list_filter = ("role",)
+	search_fields = ("user__phone_number", "branch__name", "title")
+	autocomplete_fields = ("user", "branch")
+	inlines = [AdminProfileInline]
 

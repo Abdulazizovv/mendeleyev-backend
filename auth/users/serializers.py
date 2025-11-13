@@ -4,7 +4,7 @@ from django.core.validators import RegexValidator
 from rest_framework import serializers
 from .models import User
 from django.contrib.auth.password_validation import validate_password
-from auth.users.models import UserBranch
+from apps.branch.models import BranchMembership
 from apps.branch.models import Branch
 
 
@@ -111,11 +111,45 @@ class BranchMembershipSerializer(serializers.Serializer):
     branch_status = serializers.CharField()
     role = serializers.CharField()
     title = serializers.CharField(allow_blank=True)
+    role_data = serializers.SerializerMethodField()
+
+    def get_role_data(self, obj):  # obj is dict produced by from_membership OR membership instance
+        # Support both raw BranchMembership/UserBranch instance and dict built below for backward compatibility.
+        membership = obj.get('_membership') if isinstance(obj, dict) else obj
+        try:
+            from auth.profiles.serializers import (
+                TeacherProfileSerializer,
+                StudentProfileSerializer,
+                ParentProfileSerializer,
+                AdminProfileSerializer,
+            )
+        except Exception:
+            return None
+        try:
+            # When called with dict created by from_membership we attached actual membership under _membership
+            role = membership.role
+            if role == 'teacher' and hasattr(membership, 'teacher_profile'):
+                return TeacherProfileSerializer(membership.teacher_profile).data
+            if role == 'student' and hasattr(membership, 'student_profile'):
+                return StudentProfileSerializer(membership.student_profile).data
+            if role == 'parent' and hasattr(membership, 'parent_profile'):
+                return ParentProfileSerializer(membership.parent_profile).data
+            if role in ('branch_admin', 'super_admin') and hasattr(membership, 'admin_profile'):
+                # Always serialize AdminProfile for admin-class roles
+                return AdminProfileSerializer(membership.admin_profile).data
+            return None
+        except Exception:
+            return None
 
     @staticmethod
-    def from_userbranch(m: UserBranch) -> dict:
+    def from_membership(m: BranchMembership) -> dict:
+        """Static constructor including role_data for a membership instance.
+
+        We embed the membership instance under a private key so SerializerMethodField can access
+        the related specialized profile objects without additional queries.
+        """
         b: Branch = m.branch
-        return {
+        data = {
             "branch_id": b.id,
             "branch_name": getattr(b, "name", ""),
             "branch_type": getattr(b, "type", ""),
@@ -123,3 +157,25 @@ class BranchMembershipSerializer(serializers.Serializer):
             "role": m.role,
             "title": m.title or "",
         }
+    # Dynamically attach role_data now (optional convenience); serializer will also compute.
+        try:
+            from auth.profiles.serializers import (
+                TeacherProfileSerializer,
+                StudentProfileSerializer,
+                ParentProfileSerializer,
+                AdminProfileSerializer,
+            )
+            if m.role == 'teacher' and hasattr(m, 'teacher_profile'):
+                data['role_data'] = TeacherProfileSerializer(m.teacher_profile).data
+            elif m.role == 'student' and hasattr(m, 'student_profile'):
+                data['role_data'] = StudentProfileSerializer(m.student_profile).data
+            elif m.role == 'parent' and hasattr(m, 'parent_profile'):
+                data['role_data'] = ParentProfileSerializer(m.parent_profile).data
+            elif m.role in ('branch_admin', 'super_admin') and hasattr(m, 'admin_profile'):
+                data['role_data'] = AdminProfileSerializer(m.admin_profile).data
+        except Exception:
+            pass
+        return data
+
+    # Backward-compatible alias
+    from_userbranch = from_membership

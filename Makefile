@@ -50,7 +50,7 @@ collectstatic:
 
 test:
 	# Explicit test labels to avoid discovery import ambiguity
-	docker compose exec django python manage.py test auth.users.tests apps.botapp.tests -v 2
+	docker compose exec django python manage.py test auth.users.tests auth.profiles.tests apps.branch.tests.test_membership apps.botapp.tests -v 2
 
 lint:
 	- docker compose exec django flake8 || true

@@ -83,17 +83,37 @@ class HasBranchRole(BasePermission):
         # Determine branch context
         branch_id = self._get_branch_id(request, view)
         if not branch_id:
-            # If view doesn't require a branch (no required roles), allow
-            roles: Optional[Iterable[str]] = getattr(view, "required_branch_roles", None)
+            # If neither permission nor view declares required roles, allow
+            roles: Optional[Iterable[str]] = getattr(self, "required_branch_roles", None)
+            if roles is None:
+                roles = getattr(view, "required_branch_roles", None)
             return roles in (None, (), [], set())
 
         # Evaluate membership and role
         try:
-            from auth.users.models import UserBranch
-            roles = getattr(view, "required_branch_roles", None)
+            from apps.branch.models import BranchMembership
+            # Prefer permission's intrinsic roles (wrappers) over view-level roles
+            roles = getattr(self, "required_branch_roles", None)
+            if roles is None:
+                roles = getattr(view, "required_branch_roles", None)
             if roles:
-                return UserBranch.has_role(user.id, branch_id, list(roles))
+                return BranchMembership.has_role(user.id, branch_id, list(roles))
             # Any membership
-            return UserBranch.has_role(user.id, branch_id, None)
+            return BranchMembership.has_role(user.id, branch_id, None)
         except Exception:
             return False
+
+
+class IsTeacher(HasBranchRole):
+    """Allows access if the user has the 'teacher' role for the resolved branch."""
+    required_branch_roles = ("teacher",)
+
+
+class IsStudent(HasBranchRole):
+    """Allows access if the user has the 'student' role for the resolved branch."""
+    required_branch_roles = ("student",)
+
+
+class IsBranchAdmin(HasBranchRole):
+    """Allows access if the user has the 'branch_admin' role for the resolved branch."""
+    required_branch_roles = ("branch_admin",)

@@ -34,8 +34,8 @@ class MyBranchProfileView(APIView):
     @extend_schema(responses=UserBranchProfileSerializer, summary="Get role-aware profile for my membership in a branch")
     def get(self, request, branch_id: str):
         # Resolve the user's membership
-        from auth.users.models import UserBranch
-        m = UserBranch.for_user_and_branch(request.user.id, branch_id)
+        from apps.branch.models import BranchMembership
+        m = BranchMembership.for_user_and_branch(request.user.id, branch_id)
         if not m:
             return Response({"detail": "No membership in this branch"}, status=status.HTTP_403_FORBIDDEN)
         # Role profile
@@ -46,10 +46,10 @@ class MyBranchProfileView(APIView):
 
     @extend_schema(request=UserBranchProfileSerializer, responses=UserBranchProfileSerializer, summary="Create or update role-aware profile for my membership in a branch")
     def patch(self, request, branch_id: str):
-        from auth.users.models import UserBranch
+        from apps.branch.models import BranchMembership
         from .models import UserBranchProfile
 
-        m = UserBranch.for_user_and_branch(request.user.id, branch_id)
+        m = BranchMembership.for_user_and_branch(request.user.id, branch_id)
         if not m:
             return Response({"detail": "No membership in this branch"}, status=status.HTTP_403_FORBIDDEN)
 
