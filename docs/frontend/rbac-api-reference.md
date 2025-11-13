@@ -184,3 +184,27 @@ User → BranchMembership → Branch → Role → RoleProfile (Teacher/Student/P
 - `BranchMembership` (apps.branch.models) is the canonical model for RBAC.
 - JWT branch claims remain the same: `br` and `br_role`.
 - AdminProfile added for admin-class roles (branch_admin, super_admin), surfaced via membership role_data.
+
+## Managed Branches (Admin Access)
+
+Endpoint: `/api/branches/managed/`
+
+### SuperAdmin
+- GET → Returns all active branches.
+- PATCH → Updates any user's managed branches list.
+
+### BranchAdmin
+- GET → Returns only branches assigned to current admin (via admin memberships or their managed list when configured).
+
+### Example Response
+
+```json
+[
+  {"id": "<uuid>", "name": "Downtown Campus", "status": "active"},
+  {"id": "<uuid>", "name": "North Campus", "status": "active"}
+]
+```
+
+### UI Behavior
+- BranchAdmin dashboard: display list of managed branches (read-only).
+- SuperAdmin dashboard: table with all branches, editable assignment modal (sets role_data.managed_branches for a selected admin).
