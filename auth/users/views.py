@@ -85,42 +85,199 @@ class VerifyOTPView(APIView):
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(responses=UserSerializer, summary="Get current user")
+    @extend_schema(
+        responses={200: "MeResponse"},
+        summary="Get current authenticated user with profile, branch context, memberships, and role profiles",
+        description="""Returns a comprehensive snapshot for the authenticated user including:
+        - user: core user fields
+        - profile: global profile fields (nullable if not yet created)
+        - current_branch: branch context derived from JWT 'br' claim (if scoped) with role & role_data
+        - memberships: list of all active branch memberships with role profiles
+        - auth_state: high-level auth state (READY, NOT_VERIFIED, NEEDS_PASSWORD, etc.)
+        Optimized with select_related to avoid N+1 queries for branch + role-specific profiles.
+        """
+    )
     def get(self, request):
-        return Response(UserSerializer(request.user).data)
+        from apps.branch.models import BranchMembership, BranchStatuses
+        from auth.profiles.serializers import ProfileSerializer
+        from .serializers import UserSerializer, BranchMembershipSerializer, MeResponseSerializer
+
+        user = request.user
+
+        # Global profile (may not exist yet)
+        profile_obj = getattr(user, "profile", None)
+        profile_data = ProfileSerializer(profile_obj).data if profile_obj else None
+
+        # Collect all active memberships with branch & role profiles in one query
+        memberships_qs = (
+            BranchMembership.objects.select_related(
+                "branch",
+                "teacher_profile",
+                "student_profile",
+                "parent_profile",
+                "admin_profile",
+            )
+            .filter(user_id=user.id, branch__status=BranchStatuses.ACTIVE)
+        )
+        memberships_data = [BranchMembershipSerializer.from_membership(m) for m in memberships_qs]
+
+        # Determine current branch context from JWT claims (request.auth may be a dict from SimpleJWT)
+        # Extract branch claims from authenticated token. SimpleJWT usually provides
+        # a token object (UntypedToken/AccessToken), not a raw dict, so we support
+        # multiple shapes: dict-like, token with .payload, or fallback indexing.
+        current_branch_id = None
+        current_role = None
+        token_auth = getattr(request, "auth", None)
+        if token_auth:
+            try:
+                # Direct dict case (e.g., force_authenticate in tests)
+                if isinstance(token_auth, dict):
+                    current_branch_id = token_auth.get("br") or token_auth.get("branch_id")
+                    current_role = token_auth.get("br_role")
+                else:
+                    # Token object: prefer .payload if present
+                    payload = getattr(token_auth, "payload", None)
+                    if isinstance(payload, dict):
+                        current_branch_id = payload.get("br") or payload.get("branch_id")
+                        current_role = payload.get("br_role")
+                    # Fallback: attempt mapping access
+                    if not current_branch_id:
+                        if hasattr(token_auth, "get"):
+                            current_branch_id = token_auth.get("br") or token_auth.get("branch_id")
+                            current_role = current_role or token_auth.get("br_role")
+                        else:
+                            # Last resort indexing
+                            try:
+                                current_branch_id = token_auth["br"]
+                            except Exception:
+                                pass
+                            try:
+                                current_role = token_auth["br_role"]
+                            except Exception:
+                                pass
+            except Exception:
+                current_branch_id = None
+
+        current_branch_data = None
+        if current_branch_id:
+            # Find corresponding membership (already loaded if in memberships_qs) without extra DB hit when possible
+            chosen = next((m for m in memberships_qs if str(m.branch_id) == str(current_branch_id)), None)
+            if chosen:
+                if current_role and current_role != chosen.role:
+                    current_role = chosen.role  # reflect updated DB role
+                data = BranchMembershipSerializer.from_membership(chosen)
+                data["role"] = current_role or chosen.role
+                current_branch_data = data
+            else:
+                # Fallback: token has branch claim but membership not active (role change, inactive branch, or superuser global token)
+                try:
+                    from apps.branch.models import Branch
+                    b = Branch.objects.only("id", "name", "type", "status").get(id=current_branch_id)
+                    current_branch_data = {
+                        "branch_id": b.id,
+                        "branch_name": getattr(b, "name", ""),
+                        "branch_type": getattr(b, "type", ""),
+                        "branch_status": getattr(b, "status", ""),
+                        "role": current_role or "unknown",
+                        "title": "",
+                        "role_data": None,
+                    }
+                except Exception:
+                    # Silent: keep null if branch not found
+                    pass
+
+        response_payload = {
+            "user": UserSerializer(user).data,
+            "profile": profile_data,
+            "current_branch": current_branch_data,
+            "memberships": memberships_data,
+            "auth_state": user.auth_state,
+        }
+
+        # Serializer used only for schema validation / consistency (does not alter data)
+        ser = MeResponseSerializer(response_payload)
+        return Response(ser.data)
 
 
 class RefreshTokenView(TokenRefreshView):
+    """Secure refresh that mirrors login branch validation logic.
+
+    Rules:
+    - If 'br' claim present and user is NOT superuser/staff:
+        * Branch must exist and be ACTIVE.
+        * User must have membership (branch-scoped) in that branch.
+    - Superuser / staff bypass branch & membership checks.
+    - All error responses include machine-friendly 'code'.
+    - Preserves original branch claims (br, br_role) in new access token.
+    Performance:
+    - Single membership query with select_related('branch') used for both checks.
+    - Avoids duplicate user fetch failures by narrowing fields.
+    """
     permission_classes = [AllowAny]
-    @extend_schema(summary="Refresh JWT token (preserves branch scope if present)")
+
+    @extend_schema(summary="Refresh JWT token with full branch validation")
     def post(self, request, *args, **kwargs):
         from rest_framework_simplejwt.serializers import TokenRefreshSerializer
-        serializer = TokenRefreshSerializer(data=request.data)
+        refresh_str = request.data.get("refresh")
+        if not refresh_str:
+            return Response({"detail": "Missing refresh token", "code": "refresh_missing"}, status=status.HTTP_400_BAD_REQUEST)
+        # Validate refresh structure via serializer (will also rotate if configured)
+        serializer = TokenRefreshSerializer(data={"refresh": refresh_str})
         serializer.is_valid(raise_exception=True)
-        refresh_str = serializer.validated_data.get("refresh") or request.data.get("refresh")
         try:
-            token = RefreshToken(refresh_str)
+            incoming_refresh = RefreshToken(refresh_str)
         except Exception:
-            return Response({"detail": "Invalid refresh"}, status=status.HTTP_401_UNAUTHORIZED)
-        br = token.get("br")
-        br_role = token.get("br_role")
-        if br:
-            try:
-                user = User.objects.get(id=token["user_id"])  # type: ignore
-            except Exception:
-                return Response({"detail": "Invalid user"}, status=status.HTTP_401_UNAUTHORIZED)
-            if not (user.is_superuser or user.is_staff):
-                    from apps.branch.models import Branch, BranchMembership
-                    if not Branch.objects.filter(id=br, status="active").exists():
-                        return Response({"detail": "Branch inactive or removed"}, status=status.HTTP_401_UNAUTHORIZED)
-                    if not BranchMembership.objects.filter(user_id=user.id, branch_id=br).exists():
-                        return Response({"detail": "Membership revoked"}, status=status.HTTP_401_UNAUTHORIZED)
-        access = token.access_token
+            return Response({"detail": "Invalid refresh token", "code": "refresh_invalid"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        payload = incoming_refresh.payload
+        user_id = payload.get("user_id") or payload.get("user")
+        if not user_id:
+            return Response({"detail": "Malformed token (user_id missing)", "code": "user_id_missing"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        # Narrow user query for speed
+        try:
+            user = User.objects.only("id", "is_staff", "is_superuser").get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"detail": "User not found", "code": "user_not_found"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        br = payload.get("br")  # branch scope claim (string UUID) if present
+        br_role = payload.get("br_role")
+
+        # Validate branch + membership for non-admin scoped tokens
+        membership = None
+        if br and not (user.is_superuser or user.is_staff):
+            from apps.branch.models import BranchMembership, BranchStatuses
+            membership = (
+                BranchMembership.objects.select_related("branch")
+                .only("id", "role", "branch__id", "branch__status", "user_id")
+                .filter(user_id=user.id, branch_id=br)
+                .first()
+            )
+            if not membership:
+                return Response({"detail": "Membership not found", "code": "membership_not_found"}, status=status.HTTP_401_UNAUTHORIZED)
+            if membership.branch.status != BranchStatuses.ACTIVE:
+                return Response({"detail": "Branch not active", "code": "branch_inactive", "branch_status": membership.branch.status}, status=status.HTTP_403_FORBIDDEN)
+
+        # Build new access token from validated serializer output (preserves refresh rotation config)
+        new_refresh_str = serializer.validated_data.get("refresh", refresh_str)
+        try:
+            refresh_obj = RefreshToken(new_refresh_str)
+        except Exception:
+            # Fallback to original
+            refresh_obj = incoming_refresh
+        access = refresh_obj.access_token
+
         if br:
             access["br"] = br
+            # Decide br_role: prefer existing claim, else derive from membership if loaded
             if br_role:
                 access["br_role"] = br_role
-        return Response({"access": str(access), "refresh": str(token)})
+            elif membership:
+                access["br_role"] = membership.role
+
+        # Response matches original format; include new refresh if rotated
+        response_payload = {"access": str(access), "refresh": str(refresh_obj)}
+        return Response(response_payload, status=status.HTTP_200_OK)
 
 
 class RegisterRequestOTPView(generics.GenericAPIView):

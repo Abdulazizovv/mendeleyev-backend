@@ -179,3 +179,22 @@ class BranchMembershipSerializer(serializers.Serializer):
 
     # Backward-compatible alias
     from_userbranch = from_membership
+
+
+class MeResponseSerializer(serializers.Serializer):
+    """Composite serializer for /auth/me endpoint.
+
+    We intentionally keep it lightweight (Serializer rather than ModelSerializer) since
+    the response aggregates multiple sources (User, Profile, BranchMembership proxy + role profiles).
+
+    All nested serializers are read-only; input validation is not required for GET.
+    """
+
+    user = UserSerializer(read_only=True)
+    profile = serializers.DictField(allow_null=True)  # We serialize via ProfileSerializer externally.
+    current_branch = BranchMembershipSerializer(allow_null=True, required=False)
+    memberships = BranchMembershipSerializer(many=True)
+    auth_state = serializers.CharField()
+
+    class Meta:
+        fields = ["user", "profile", "current_branch", "memberships", "auth_state"]
