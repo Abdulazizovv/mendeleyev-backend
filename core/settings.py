@@ -14,6 +14,7 @@ from pathlib import Path
 import environs
 import dj_database_url
 import os
+import sys
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -31,6 +32,9 @@ SECRET_KEY = env.str("DJANGO_SECRET_KEY", default=env.str("DJANGO_SECRET_KEY"))
 DEBUG = env.bool("DEBUG", default=False)
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["*"])  # replace * in production
+# Ensure test client host allowed to prevent DisallowedHost during test runs
+if ("test" in sys.argv or env.bool("ADD_TESTSERVER_HOST", default=True)) and "testserver" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append("testserver")
 
 # CSRF trusted origins
 _default_csrf_trusted = []
