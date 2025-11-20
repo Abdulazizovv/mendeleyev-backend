@@ -110,6 +110,10 @@ class BranchMembershipSerializer(serializers.Serializer):
     branch_type = serializers.CharField()
     branch_status = serializers.CharField()
     role = serializers.CharField()
+    effective_role = serializers.CharField(required=False, allow_null=True)
+    role_ref_id = serializers.UUIDField(required=False, allow_null=True)
+    salary = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    balance = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
     title = serializers.CharField(allow_blank=True)
     role_data = serializers.SerializerMethodField()
 
@@ -145,8 +149,7 @@ class BranchMembershipSerializer(serializers.Serializer):
     def from_membership(m: BranchMembership) -> dict:
         """Static constructor including role_data for a membership instance.
 
-        We embed the membership instance under a private key so SerializerMethodField can access
-        the related specialized profile objects without additional queries.
+        Returns a plain JSON-serializable dict suitable for direct Response usage.
         """
         b: Branch = m.branch
         data = {
@@ -155,6 +158,10 @@ class BranchMembershipSerializer(serializers.Serializer):
             "branch_type": getattr(b, "type", ""),
             "branch_status": getattr(b, "status", ""),
             "role": m.role,
+            "effective_role": m.get_effective_role(),
+            "role_ref_id": str(m.role_ref.id) if m.role_ref else None,
+            "salary": float(m.get_salary()) if m.get_salary() else None,
+            "balance": float(m.balance) if m.balance else 0,
             "title": m.title or "",
         }
     # Dynamically attach role_data now (optional convenience); serializer will also compute.

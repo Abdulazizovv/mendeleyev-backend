@@ -2,8 +2,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
-from .models import Branch, BranchStatuses, BranchTypes
-from .models import BranchMembership
+from .models import Branch, BranchStatuses, BranchTypes, BranchMembership, Role, SalaryType
 from auth.profiles.models import AdminProfile
 
 
@@ -84,9 +83,7 @@ class BranchAdmin(admin.ModelAdmin):
 class AdminProfileInline(admin.StackedInline):
 	"""Inline to display/edit AdminProfile on a membership page.
 
-	Note: AdminProfile links to the underlying concrete model (users.UserBranch), which this
-	proxy admin still represents. Django admin supports inlines for proxies that point to the
-	same base table, so this works without migrations.
+	AdminProfile links to BranchMembership via OneToOneField.
 	"""
 
 	model = AdminProfile
@@ -97,11 +94,38 @@ class AdminProfileInline(admin.StackedInline):
 	filter_horizontal = ("managed_branches",)
 
 
+@admin.register(Role)
+class RoleAdmin(admin.ModelAdmin):
+	list_display = ("name", "branch", "salary_type", "monthly_salary", "is_active", "created_at")
+	list_filter = ("salary_type", "is_active", "branch")
+	search_fields = ("name", "description", "branch__name")
+	autocomplete_fields = ("branch",)
+	fieldsets = (
+		(_('Asosiy ma\'lumotlar'), {
+			'fields': ('name', 'branch', 'description', 'is_active')
+		}),
+		(_('Maosh'), {
+			'fields': ('salary_type', 'monthly_salary', 'hourly_rate', 'per_item_rate')
+		}),
+		(_('Ruxsatlar'), {
+			'fields': ('permissions',)
+		}),
+	)
+
+
 @admin.register(BranchMembership)
 class BranchMembershipAdmin(admin.ModelAdmin):
-	list_display = ("user", "branch", "role", "title", "created_at")
-	list_filter = ("role",)
+	list_display = ("user", "branch", "role", "role_ref", "title", "balance", "created_at")
+	list_filter = ("role", "branch")
 	search_fields = ("user__phone_number", "branch__name", "title")
-	autocomplete_fields = ("user", "branch")
+	autocomplete_fields = ("user", "branch", "role_ref")
+	fieldsets = (
+		(_('Asosiy ma\'lumotlar'), {
+			'fields': ('user', 'branch', 'role', 'role_ref', 'title')
+		}),
+		(_('Moliya'), {
+			'fields': ('balance',)
+		}),
+	)
 	inlines = [AdminProfileInline]
 

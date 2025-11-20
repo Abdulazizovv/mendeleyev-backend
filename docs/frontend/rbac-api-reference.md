@@ -185,6 +185,24 @@ User → BranchMembership → Branch → Role → RoleProfile (Teacher/Student/P
 - JWT branch claims remain the same: `br` and `br_role`.
 - AdminProfile added for admin-class roles (branch_admin, super_admin), surfaced via membership role_data.
 
+## Yangi Imkoniyatlar (2025-01)
+
+### Role Model
+- Har bir filial uchun konfiguratsiyalanadigan rollar
+- Maosh turi: oylik, soatlik, har bir uchun
+- JSON formatida ruxsatlar
+
+### Balance Management
+- Har bir xodimning balansi
+- Balansni qo'shish/ayirish
+- Ish haqini ko'rish va boshqarish
+
+### Audit Trail
+- `created_by` — kim yaratdi
+- `updated_by` — kim o'zgartirdi
+
+Batafsil ma'lumot uchun: [rbac-salary-balance.md](./rbac-salary-balance.md)
+
 ## Managed Branches (Admin Access)
 
 Endpoint: `/api/branches/managed/`

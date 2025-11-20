@@ -2,7 +2,8 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django import forms
 from django.core.exceptions import ValidationError
-from .models import User, UserBranch
+from .models import User
+from apps.branch.models import BranchMembership
 from auth.profiles.models import Profile
 
 
@@ -78,24 +79,21 @@ class UserAdmin(DjangoUserAdmin):
 		obj.save()
 
 	class MembershipInline(admin.TabularInline):
-		model = UserBranch
+		model = BranchMembership
+		fk_name = "user"
 		extra = 0
-		autocomplete_fields = ("branch",)
-		fields = ("branch", "role", "title", "created_at", "updated_at")
+		autocomplete_fields = ("branch", "role_ref")
+		fields = ("branch", "role", "role_ref", "title", "balance", "created_at", "updated_at")
 		readonly_fields = ("created_at", "updated_at")
 
 	class ProfileInline(admin.StackedInline):
 		model = Profile
+		fk_name = "user"
 		can_delete = False
 		extra = 0
 		fields = ("avatar", "date_of_birth", "gender", "language", "timezone", "bio", "address", "socials")
 
 	inlines = [ProfileInline, MembershipInline]
 
-@admin.register(UserBranch)
-class UserBranchAdmin(admin.ModelAdmin):
-	list_display = ("user", "branch", "role", "title", "created_at")
-	list_filter = ("role",)
-	search_fields = ("user__phone_number", "branch__name", "title")
-	autocomplete_fields = ("user", "branch")
+# UserBranchAdmin removed - use apps.branch.admin.BranchMembershipAdmin instead
 

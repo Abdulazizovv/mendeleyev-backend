@@ -1,5 +1,6 @@
 from django.db import models
 from django.utils import timezone
+from django.conf import settings
 import uuid
 
 
@@ -21,12 +22,33 @@ class BaseModel(models.Model):
     - UUID primary key
     - Timestamp fields (created_at, updated_at)
     - Soft delete functionality
+    - Audit trail (created_by, updated_by)
     - Common utility methods
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Yaratilgan vaqti")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="O'zgartirilgan vaqti")
     deleted_at = models.DateTimeField(null=True, blank=True, verbose_name="O'chirilgan vaqti")
+    
+    # Audit trail fields
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='%(class)s_created',
+        verbose_name="Yaratgan foydalanuvchi",
+        help_text="Bu obyektni yaratgan foydalanuvchi"
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='%(class)s_updated',
+        verbose_name="O'zgartirgan foydalanuvchi",
+        help_text="Bu obyektni oxirgi marta o'zgartirgan foydalanuvchi"
+    )
 
     objects = BaseManager()
 

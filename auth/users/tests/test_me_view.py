@@ -1,8 +1,7 @@
 from django.test import TestCase
 from rest_framework.test import APIClient
 from django.contrib.auth import get_user_model
-from apps.branch.models import Branch, BranchStatuses
-from auth.users.models import UserBranch
+from apps.branch.models import Branch, BranchStatuses, BranchMembership
 
 
 User = get_user_model()
@@ -15,7 +14,7 @@ class MeViewTests(TestCase):
     def test_me_view_with_branch_context(self):
         user = User.objects.create_user(phone_number="+998901112233", password="Passw0rd!", first_name="John")
         branch = Branch.objects.create(name="Chilonzor Branch", status=BranchStatuses.ACTIVE)
-        UserBranch.objects.create(user=user, branch=branch, role="teacher", title="Math Teacher")
+        BranchMembership.objects.create(user=user, branch=branch, role="teacher", title="Math Teacher")
 
         self.client.force_authenticate(user=user, token={"br": str(branch.id), "br_role": "teacher"})
         resp = self.client.get("/api/v1/auth/me/")

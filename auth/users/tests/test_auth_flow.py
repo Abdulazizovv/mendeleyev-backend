@@ -7,8 +7,7 @@ from django.urls import reverse
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
-from apps.branch.models import Branch, BranchStatuses
-from auth.users.models import UserBranch, BranchRole
+from apps.branch.models import Branch, BranchStatuses, BranchMembership, BranchRole
 from apps.common.otp import _get_store, _key_for_cooldown, _key_for_code, _key_for_attempts
 
 User = get_user_model()
@@ -128,7 +127,7 @@ class AuthFlowTests(TestCase):
 
         # Add active branch membership before expecting success
         b = Branch.objects.create(name="Test Branch", status=BranchStatuses.ACTIVE)
-        UserBranch.objects.create(user=self.user_unverified, branch=b, role=BranchRole.TEACHER)
+        BranchMembership.objects.create(user=self.user_unverified, branch=b, role=BranchRole.TEACHER)
         res_ok = self.client.post(login_url, {"phone_number": self.phone_existing, "password": "CorrectPass123!"}, format="json")
         self.assertEqual(res_ok.status_code, 200)
         # For single branch user tokens should include br/br_role
@@ -167,7 +166,7 @@ class AuthFlowTests(TestCase):
 
         # Need branch membership to login successfully (flow issues tokens regardless on password reset confirm)
         b = Branch.objects.create(name="Reset Branch", status=BranchStatuses.ACTIVE)
-        UserBranch.objects.create(user=self.user_unverified, branch=b, role=BranchRole.TEACHER)
+        BranchMembership.objects.create(user=self.user_unverified, branch=b, role=BranchRole.TEACHER)
         # Login with new password works and returns scoped tokens
         self.client.credentials()  # reset
         login2 = self.client.post(reverse("auth-login"), {"phone_number": self.phone_existing, "password": "EvenNewer123!"}, format="json")

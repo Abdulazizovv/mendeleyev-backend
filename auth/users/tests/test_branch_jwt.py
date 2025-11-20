@@ -7,8 +7,7 @@ from django.urls import reverse
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
-from apps.branch.models import Branch, BranchStatuses
-from auth.users.models import UserBranch, BranchRole
+from apps.branch.models import Branch, BranchStatuses, BranchMembership, BranchRole
 
 
 User = get_user_model()
@@ -27,14 +26,15 @@ class BranchJWTTests(TestCase):
         self.u_single.phone_verified = True
         self.u_single.set_password("Pass123!@#")
         self.u_single.save()
-        UserBranch.objects.create(user=self.u_single, branch=self.b1, role=BranchRole.TEACHER)
+        BranchMembership.objects.create(user=self.u_single, branch=self.b1, role=BranchRole.TEACHER)
 
         self.u_multi = User.objects.create_user(phone_number="+998900000002", password=None)
         self.u_multi.phone_verified = True
         self.u_multi.set_password("Pass123!@#")
         self.u_multi.save()
-        UserBranch.objects.create(user=self.u_multi, branch=self.b1, role=BranchRole.TEACHER)
-        UserBranch.objects.create(user=self.u_multi, branch=self.b2, role=BranchRole.BRANCH_ADMIN)
+        # Multi-branch user: teacher in b1, branch_admin in b2
+        BranchMembership.objects.create(user=self.u_multi, branch=self.b1, role=BranchRole.TEACHER)
+        BranchMembership.objects.create(user=self.u_multi, branch=self.b2, role=BranchRole.BRANCH_ADMIN)
 
         self.admin = User.objects.create_user(phone_number="+998900000003", password="Admin123!@#", is_staff=True)
         self.admin.phone_verified = True
@@ -98,13 +98,13 @@ class BranchJWTTests(TestCase):
         refresh_b2 = res_b2.data["refresh"]
 
         # Remove membership and try refresh
-        UserBranch.objects.filter(user=self.u_multi, branch=self.b2).delete()
+        BranchMembership.objects.filter(user=self.u_multi, branch=self.b2).delete()
         rf = self.client.post(reverse("auth-refresh"), {"refresh": refresh_b2}, format="json")
         self.assertEqual(rf.status_code, 401)
 
         # Archived branch should be rejected on refresh
         # Give membership to archived branch and login
-        UserBranch.objects.get_or_create(user=self.u_single, branch=self.b_arch, role=BranchRole.TEACHER)
+        BranchMembership.objects.get_or_create(user=self.u_single, branch=self.b_arch, role=BranchRole.TEACHER)
         # Can't login to archived via selection (login checks active only), but we can simulate refresh validation:
         # Issue login for active b1 first and then manipulate refresh claim via switch -> expect 400 on switch to archived
         res_active = self.login(self.u_single.phone_number, "Pass123!@#")

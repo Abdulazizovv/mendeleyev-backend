@@ -2,8 +2,7 @@ from django.test import TestCase
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
-from apps.branch.models import Branch, BranchStatuses
-from auth.users.models import UserBranch
+from apps.branch.models import Branch, BranchStatuses, BranchMembership
 
 User = get_user_model()
 
@@ -17,7 +16,7 @@ class RefreshTokenViewTests(TestCase):
     def test_refresh_success_with_active_membership(self):
         user = User.objects.create_user(phone_number='+998931111111', password='Passw0rd!')
         branch = Branch.objects.create(name='Active Branch', status=BranchStatuses.ACTIVE)
-        UserBranch.objects.create(user=user, branch=branch, role='teacher', title='Math Teacher')
+        BranchMembership.objects.create(user=user, branch=branch, role='teacher', title='Math Teacher')
         token = RefreshToken.for_user(user)
         token['br'] = str(branch.id)
         token['br_role'] = 'teacher'
@@ -44,7 +43,8 @@ class RefreshTokenViewTests(TestCase):
     def test_refresh_branch_inactive(self):
         user = User.objects.create_user(phone_number='+998933333333', password='Passw0rd!')
         branch = Branch.objects.create(name='Inactive Branch', status=BranchStatuses.INACTIVE)
-        UserBranch.objects.create(user=user, branch=branch, role='student', title='9A Student')
+        # Membership exists but branch is inactive
+        BranchMembership.objects.create(user=user, branch=branch, role='student', title='9A Student')
         token = RefreshToken.for_user(user)
         token['br'] = str(branch.id)
         token['br_role'] = 'student'

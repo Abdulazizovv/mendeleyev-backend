@@ -12,8 +12,6 @@ from drf_spectacular.utils import extend_schema
 
 from apps.common.otp import OTPService, OTPError
 from .serializers import (
-    RequestOTPSerializer,
-    VerifyOTPSerializer,
     UserSerializer,
     RegisterRequestOTPSerializer,
     RegisterConfirmSerializer,
@@ -33,54 +31,7 @@ logger = logging.getLogger("apps.auth")
 User = get_user_model()
 
 
-class RequestOTPView(APIView):
-    permission_classes = [AllowAny]
-
-    @extend_schema(request=RequestOTPSerializer, responses={200: dict}, summary="(Legacy) Request OTP code")
-    def post(self, request):
-        serializer = RequestOTPSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        phone = serializer.validated_data["phone_number"]
-        try:
-            result = OTPService.request_code(phone)
-            return Response({"detail": "OTP sent", **result}, status=status.HTTP_200_OK)
-        except OTPError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
-        except Exception:
-            logger.exception("OTP request failure")
-            return Response({"detail": "Failed to process OTP request"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-class VerifyOTPView(APIView):
-    permission_classes = [AllowAny]
-
-    @extend_schema(request=VerifyOTPSerializer, responses={200: dict}, summary="(Legacy) Verify OTP and get JWT")
-    def post(self, request):
-        serializer = VerifyOTPSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        phone = serializer.validated_data["phone_number"]
-        code = serializer.validated_data["code"]
-
-        try:
-            ok = OTPService.verify_code(phone, code)
-            if not ok:
-                return Response({"detail": "Invalid or expired code"}, status=status.HTTP_400_BAD_REQUEST)
-
-            user, _ = User.objects.get_or_create(phone_number=phone, defaults={"is_active": True})
-            if not user.is_active:
-                return Response({"detail": "User is inactive"}, status=status.HTTP_403_FORBIDDEN)
-
-            refresh = RefreshToken.for_user(user)
-            data = {
-                "access": str(refresh.access_token),
-                "refresh": str(refresh),
-                "user": UserSerializer(user).data,
-            }
-            return Response(data, status=status.HTTP_200_OK)
-        except Exception:
-            logger.exception("OTP verify failure")
-            return Response({"detail": "Failed to verify code"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+# Legacy RequestOTPView and VerifyOTPView removed - use phone/verification/request and phone/verification/confirm instead
 
 class MeView(APIView):
     permission_classes = [IsAuthenticated]

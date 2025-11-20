@@ -1,17 +1,26 @@
 from __future__ import annotations
 
 from typing import Iterable
+from decimal import Decimal
 
 from django.shortcuts import get_object_or_404
+from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from drf_spectacular.utils import extend_schema
+from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
+from drf_spectacular.utils import extend_schema, OpenApiParameter
 
-from .models import Branch, BranchStatuses, BranchMembership
-from .serializers import BranchListSerializer
+from .models import Branch, BranchStatuses, BranchMembership, Role
+from .serializers import (
+    BranchListSerializer,
+    RoleSerializer,
+    RoleCreateSerializer,
+    BranchMembershipDetailSerializer,
+    BalanceUpdateSerializer,
+)
 from auth.users.models import User
-from apps.common.permissions import HasBranchRole
+from apps.common.permissions import HasBranchRole, IsSuperAdmin, IsBranchAdmin
 
 
 class ManagedBranchesView(APIView):
@@ -89,3 +98,247 @@ class ManagedBranchesView(APIView):
 		ap.save()
 
 		return Response({"detail": "Managed branches updated successfully."})
+
+
+class RoleListView(ListCreateAPIView):
+	"""List and create roles for a branch.
+	
+	- SuperAdmin: can create roles for any branch
+	- BranchAdmin: can create roles only for their own branch
+	"""
+	
+	permission_classes = [IsAuthenticated, HasBranchRole]
+	serializer_class = RoleSerializer
+	
+	def get_queryset(self):
+		"""Get roles for the specified branch."""
+		branch_id = self.kwargs.get('branch_id')
+		branch = get_object_or_404(Branch, id=branch_id)
+		
+		# Check permissions
+		user = self.request.user
+		if user.is_superuser:
+			# SuperAdmin can see all roles
+			return Role.objects.filter(branch=branch)
+		else:
+			# BranchAdmin can only see roles for their branch
+			membership = BranchMembership.objects.filter(
+				user=user,
+				branch=branch,
+				role__in=['branch_admin', 'super_admin']
+			).first()
+			if membership:
+				return Role.objects.filter(branch=branch)
+			return Role.objects.none()
+	
+	def get_serializer_class(self):
+		"""Use different serializer for create."""
+		if self.request.method == 'POST':
+			return RoleCreateSerializer
+		return RoleSerializer
+	
+	def perform_create(self, serializer):
+		"""Set branch and created_by on role creation."""
+		branch_id = self.kwargs.get('branch_id')
+		branch = get_object_or_404(Branch, id=branch_id)
+		
+		# Check permissions
+		user = self.request.user
+		if not user.is_superuser:
+			# BranchAdmin can only create roles for their branch
+			membership = BranchMembership.objects.filter(
+				user=user,
+				branch=branch,
+				role__in=['branch_admin', 'super_admin']
+			).first()
+			if not membership:
+				from rest_framework.exceptions import PermissionDenied
+				raise PermissionDenied("You can only create roles for your own branch.")
+		
+		serializer.save(branch=branch, created_by=user, updated_by=user)
+	
+	@extend_schema(
+		summary="List roles for a branch",
+		parameters=[
+			OpenApiParameter('branch_id', type=str, location=OpenApiParameter.PATH, description='Branch ID'),
+		],
+	)
+	def get(self, request, *args, **kwargs):
+		return super().get(request, *args, **kwargs)
+	
+	@extend_schema(
+		summary="Create a new role for a branch",
+		request=RoleCreateSerializer,
+		responses={201: RoleSerializer},
+	)
+	def post(self, request, *args, **kwargs):
+		return super().post(request, *args, **kwargs)
+
+
+class RoleDetailView(RetrieveUpdateDestroyAPIView):
+	"""Retrieve, update, or delete a role.
+	
+	- SuperAdmin: can manage any role
+	- BranchAdmin: can manage roles only for their own branch
+	"""
+	
+	permission_classes = [IsAuthenticated, HasBranchRole]
+	serializer_class = RoleSerializer
+	lookup_field = 'id'
+	
+	def get_queryset(self):
+		"""Get roles for the specified branch."""
+		branch_id = self.kwargs.get('branch_id')
+		branch = get_object_or_404(Branch, id=branch_id)
+		
+		# Check permissions
+		user = self.request.user
+		if user.is_superuser:
+			return Role.objects.filter(branch=branch)
+		else:
+			membership = BranchMembership.objects.filter(
+				user=user,
+				branch=branch,
+				role__in=['branch_admin', 'super_admin']
+			).first()
+			if membership:
+				return Role.objects.filter(branch=branch)
+			return Role.objects.none()
+	
+	def perform_update(self, serializer):
+		"""Set updated_by on role update."""
+		serializer.save(updated_by=self.request.user)
+	
+	@extend_schema(
+		summary="Get role details",
+		parameters=[
+			OpenApiParameter('branch_id', type=str, location=OpenApiParameter.PATH),
+			OpenApiParameter('id', type=str, location=OpenApiParameter.PATH),
+		],
+	)
+	def get(self, request, *args, **kwargs):
+		return super().get(request, *args, **kwargs)
+	
+	@extend_schema(
+		summary="Update a role",
+		request=RoleCreateSerializer,
+		responses={200: RoleSerializer},
+	)
+	def patch(self, request, *args, **kwargs):
+		return super().patch(request, *args, **kwargs)
+	
+	@extend_schema(
+		summary="Delete a role",
+		responses={204: None},
+	)
+	def delete(self, request, *args, **kwargs):
+		return super().delete(request, *args, **kwargs)
+
+
+class MembershipListView(ListCreateAPIView):
+	"""List memberships for a branch.
+	
+	- SuperAdmin: can see all memberships
+	- BranchAdmin: can see memberships for their branch
+	
+	Note: POST (create) is not implemented - memberships should be created via admin or separate endpoint.
+	"""
+	
+	permission_classes = [IsAuthenticated, HasBranchRole]
+	serializer_class = BranchMembershipDetailSerializer
+	
+	def get_queryset(self):
+		"""Get memberships for the specified branch."""
+		branch_id = self.kwargs.get('branch_id')
+		branch = get_object_or_404(Branch, id=branch_id)
+		
+		# Check permissions
+		user = self.request.user
+		if user.is_superuser:
+			return BranchMembership.objects.filter(branch=branch)
+		else:
+			membership = BranchMembership.objects.filter(
+				user=user,
+				branch=branch,
+				role__in=['branch_admin', 'super_admin']
+			).first()
+			if membership:
+				return BranchMembership.objects.filter(branch=branch)
+			return BranchMembership.objects.none()
+	
+	def post(self, request, *args, **kwargs):
+		"""Create membership is not allowed via this endpoint."""
+		return Response(
+			{"detail": "Membership creation is not supported via this endpoint. Use admin panel or separate endpoint."},
+			status=status.HTTP_405_METHOD_NOT_ALLOWED
+		)
+	
+	@extend_schema(
+		summary="List memberships for a branch",
+		parameters=[
+			OpenApiParameter('branch_id', type=str, location=OpenApiParameter.PATH),
+		],
+	)
+	def get(self, request, *args, **kwargs):
+		return super().get(request, *args, **kwargs)
+
+
+class BalanceUpdateView(APIView):
+	"""Update membership balance.
+	
+	- SuperAdmin: can update any membership balance
+	- BranchAdmin: can update memberships for their branch
+	"""
+	
+	permission_classes = [IsAuthenticated, HasBranchRole]
+	
+	@extend_schema(
+		summary="Update membership balance",
+		request=BalanceUpdateSerializer,
+		responses={200: BranchMembershipDetailSerializer},
+		parameters=[
+			OpenApiParameter('branch_id', type=str, location=OpenApiParameter.PATH),
+			OpenApiParameter('membership_id', type=str, location=OpenApiParameter.PATH),
+		],
+	)
+	def post(self, request, branch_id, membership_id):
+		"""Add or subtract from membership balance."""
+		branch = get_object_or_404(Branch, id=branch_id)
+		membership = get_object_or_404(BranchMembership, id=membership_id, branch=branch)
+		
+		# Check permissions
+		user = request.user
+		if not user.is_superuser:
+			admin_membership = BranchMembership.objects.filter(
+				user=user,
+				branch=branch,
+				role__in=['branch_admin', 'super_admin']
+			).first()
+			if not admin_membership:
+				return Response(
+					{"detail": "You can only update balances for your own branch."},
+					status=status.HTTP_403_FORBIDDEN
+				)
+		
+		serializer = BalanceUpdateSerializer(data=request.data)
+		if serializer.is_valid():
+			amount = Decimal(str(serializer.validated_data['amount']))
+			
+			if amount > 0:
+				membership.add_to_balance(amount)
+			elif amount < 0:
+				success = membership.subtract_from_balance(abs(amount))
+				if not success:
+					return Response(
+						{"detail": "Insufficient balance."},
+						status=status.HTTP_400_BAD_REQUEST
+					)
+			
+			# Update updated_by
+			membership.updated_by = user
+			membership.save(update_fields=['updated_by'])
+			
+			response_serializer = BranchMembershipDetailSerializer(membership)
+			return Response(response_serializer.data, status=status.HTTP_200_OK)
+		
+		return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

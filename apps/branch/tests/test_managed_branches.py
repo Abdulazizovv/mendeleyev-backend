@@ -7,7 +7,7 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 
 from apps.branch.models import Branch, BranchStatuses, BranchMembership
 from apps.branch.views import ManagedBranchesView
-from auth.users.models import BranchRole
+from apps.branch.models import BranchRole
 
 User = get_user_model()
 

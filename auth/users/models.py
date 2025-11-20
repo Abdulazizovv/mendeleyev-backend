@@ -79,7 +79,11 @@ class User(AbstractBaseUser, PermissionsMixin):
 
 	# Branch memberships (through model captures role)
 	branches = models.ManyToManyField(
-		'branch.Branch', through='UserBranch', related_name='users', blank=True
+		'branch.Branch',
+		through='branch.BranchMembership',
+		through_fields=('user', 'branch'),
+		related_name='users',
+		blank=True
 	)
 
 	objects = UserManager()
@@ -110,58 +114,6 @@ class User(AbstractBaseUser, PermissionsMixin):
 		return "READY"
 
 
-class BranchRole(models.TextChoices):
-	SUPER_ADMIN = 'super_admin', 'Super Admin'
-	BRANCH_ADMIN = 'branch_admin', 'Branch Admin'
-	TEACHER = 'teacher', 'Teacher'
-	STUDENT = 'student', 'Student'
-	PARENT = 'parent', 'Parent'
-
-
-class UserBranch(BaseModel):
-	"""Deprecated legacy membership model.
-
-	Phase 3 RBAC: `apps.branch.models.BranchMembership` is now the canonical
-	model. This class remains for backward compatibility and is unmanaged.
-	Direct instantiation will emit a DeprecationWarning; queries still work
-	against the shared underlying table.
-	"""
-
-	user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='user_branches')
-	branch = models.ForeignKey('branch.Branch', on_delete=models.CASCADE, related_name='user_branches')
-	role = models.CharField(max_length=32, choices=BranchRole.choices)
-	title = models.CharField(max_length=100, blank=True, default="", help_text="Optional local title (e.g., Physics Teacher)")
-
-	class Meta:
-		unique_together = ("user", "branch")
-		verbose_name = "Foydalanuvchi-filial roli (deprecated)"
-		verbose_name_plural = "Foydalanuvchi-filial rollari (deprecated)"
-		indexes = [
-			models.Index(fields=["branch", "role"]),
-			models.Index(fields=["user", "role"]),
-		]
-		managed = False  # Prevent new migrations; table maintained by BranchMembership
-
-	def __init__(self, *args, **kwargs):  # pragma: no cover - warning path
-		import warnings
-		warnings.warn(
-			"UserBranch is deprecated; use apps.branch.models.BranchMembership instead.",
-			DeprecationWarning,
-			stacklevel=2,
-		)
-		super().__init__(*args, **kwargs)
-
-	def __str__(self) -> str:  # pragma: no cover - trivial
-		return f"{self.user.phone_number} @ {self.branch_id} ({self.get_role_display()})"
-
-	@classmethod
-	def for_user_and_branch(cls, user_id, branch_id):
-		return cls.objects.filter(user_id=user_id, branch_id=branch_id).first()
-
-	@classmethod
-	def has_role(cls, user_id, branch_id, roles: list[str] | tuple[str, ...] | None = None) -> bool:
-		qs = cls.objects.filter(user_id=user_id, branch_id=branch_id)
-		if roles:
-			qs = qs.filter(role__in=list(roles))
-		return qs.exists()
+# BranchRole moved to apps.branch.models.BranchRole
+# UserBranch removed - use apps.branch.models.BranchMembership instead
 

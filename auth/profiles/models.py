@@ -41,7 +41,7 @@ class UserBranchProfile(BaseModel):
 	new specialized per-role profile models below. Future phases may deprecate this.
 	"""
 
-	user_branch = models.OneToOneField('users.UserBranch', on_delete=models.CASCADE, related_name='generic_profile')
+	user_branch = models.OneToOneField('branch.BranchMembership', on_delete=models.CASCADE, related_name='generic_profile')
 	display_name = models.CharField(max_length=150, blank=True, default='', help_text='Role-specific display name')
 	title = models.CharField(max_length=150, blank=True, default='', help_text='e.g., Physics Teacher, 9A Student')
 	about = models.TextField(blank=True, default='')
@@ -60,7 +60,7 @@ class TeacherProfile(BaseModel):
 
 	We avoid multi-table inheritance for clarity and direct OneToOne composition.
 	"""
-	user_branch = models.OneToOneField('users.UserBranch', on_delete=models.CASCADE, related_name='teacher_profile')
+	user_branch = models.OneToOneField('branch.BranchMembership', on_delete=models.CASCADE, related_name='teacher_profile')
 	subject = models.CharField(max_length=120, blank=True, default='')
 	experience_years = models.PositiveIntegerField(blank=True, null=True)
 	bio = models.TextField(blank=True, default='')
@@ -75,7 +75,7 @@ class TeacherProfile(BaseModel):
 
 class StudentProfile(BaseModel):
 	"""Student-specific profile fields linked to a branch membership."""
-	user_branch = models.OneToOneField('users.UserBranch', on_delete=models.CASCADE, related_name='student_profile')
+	user_branch = models.OneToOneField('branch.BranchMembership', on_delete=models.CASCADE, related_name='student_profile')
 	grade = models.CharField(max_length=32, blank=True, default='')
 	enrollment_date = models.DateField(blank=True, null=True)
 	parent_name = models.CharField(max_length=150, blank=True, default='')
@@ -90,7 +90,7 @@ class StudentProfile(BaseModel):
 
 class ParentProfile(BaseModel):
 	"""Parent-specific profile fields linked to a branch membership."""
-	user_branch = models.OneToOneField('users.UserBranch', on_delete=models.CASCADE, related_name='parent_profile')
+	user_branch = models.OneToOneField('branch.BranchMembership', on_delete=models.CASCADE, related_name='parent_profile')
 	notes = models.TextField(blank=True, default='')
 	related_students = models.ManyToManyField(StudentProfile, blank=True, related_name='parent_links')
 
@@ -114,7 +114,7 @@ class AdminProfile(BaseModel):
 		"""
 
 		# Keep field name consistent with other role profiles for DX and admin inlines
-		user_branch = models.OneToOneField('users.UserBranch', on_delete=models.CASCADE, related_name='admin_profile')
+		user_branch = models.OneToOneField('branch.BranchMembership', on_delete=models.CASCADE, related_name='admin_profile')
 
 		# True when the membership role is super_admin; branch_admin remains False
 		is_super_admin = models.BooleanField(default=False)
