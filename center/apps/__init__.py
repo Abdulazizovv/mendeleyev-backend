@@ -1,2 +1,0 @@
-# Center apps package
-

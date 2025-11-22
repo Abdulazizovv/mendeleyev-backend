@@ -2,8 +2,32 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
-from .models import Branch, BranchStatuses, BranchTypes, BranchMembership, Role
+from .models import Branch, BranchStatuses, BranchTypes, BranchMembership, Role, SalaryType, BranchSettings
 from auth.profiles.models import AdminProfile
+
+
+class BranchSettingsInline(admin.StackedInline):
+	"""Inline to display/edit BranchSettings on a branch page."""
+	
+	model = BranchSettings
+	extra = 0
+	can_delete = False
+	fk_name = "branch"
+	fieldsets = (
+		(_('Dars jadvali sozlamalari'), {
+			'fields': ('lesson_duration_minutes', 'break_duration_minutes', 'school_start_time', 'school_end_time')
+		}),
+		(_('Akademik sozlamalar'), {
+			'fields': ('academic_year_start_month', 'academic_year_end_month')
+		}),
+		(_('Moliya sozlamalari'), {
+			'fields': ('currency', 'currency_symbol')
+		}),
+		(_('Qo\'shimcha sozlamalar'), {
+			'fields': ('additional_settings',),
+			'classes': ('collapse',)
+		}),
+	)
 
 
 @admin.register(Branch)
@@ -32,6 +56,7 @@ class BranchAdmin(admin.ModelAdmin):
 			'fields': ('created_at', 'updated_at', 'deleted_at')
 		}),
 	)
+	inlines = [BranchSettingsInline]
 
 	actions = ('make_active', 'make_inactive', 'archive', 'restore_soft_deleted', 'hard_delete_selected')
 
@@ -80,6 +105,38 @@ class BranchAdmin(admin.ModelAdmin):
 		self.message_user(request, _(f"{count} ta filial butunlay o\'chirildi"))
 
 
+@admin.register(BranchSettings)
+class BranchSettingsAdmin(admin.ModelAdmin):
+	list_display = ('branch', 'lesson_duration_minutes', 'break_duration_minutes', 'school_start_time', 'school_end_time', 'currency', 'created_at')
+	list_filter = ('currency', 'academic_year_start_month', 'academic_year_end_month')
+	search_fields = ('branch__name', 'currency')
+	autocomplete_fields = ('branch',)
+	readonly_fields = ('created_at', 'updated_at', 'deleted_at', 'created_by', 'updated_by')
+	
+	fieldsets = (
+		(_('Asosiy ma\'lumotlar'), {
+			'fields': ('branch',)
+		}),
+		(_('Dars jadvali sozlamalari'), {
+			'fields': ('lesson_duration_minutes', 'break_duration_minutes', 'school_start_time', 'school_end_time')
+		}),
+		(_('Akademik sozlamalar'), {
+			'fields': ('academic_year_start_month', 'academic_year_end_month')
+		}),
+		(_('Moliya sozlamalari'), {
+			'fields': ('currency', 'currency_symbol')
+		}),
+		(_('Qo\'shimcha sozlamalar'), {
+			'fields': ('additional_settings',),
+			'classes': ('collapse',)
+		}),
+		(_('Tizim ma\'lumotlari'), {
+			'classes': ('collapse',),
+			'fields': ('created_at', 'updated_at', 'deleted_at', 'created_by', 'updated_by')
+		}),
+	)
+
+
 class AdminProfileInline(admin.StackedInline):
 	"""Inline to display/edit AdminProfile on a membership page.
 
@@ -112,17 +169,25 @@ class RoleAdmin(admin.ModelAdmin):
 
 @admin.register(BranchMembership)
 class BranchMembershipAdmin(admin.ModelAdmin):
-	list_display = ("user", "branch", "role", "role_ref", "title", "monthly_salary", "balance", "created_at")
-	list_filter = ("role", "branch")
+	list_display = ("user", "branch", "role", "role_ref", "title", "salary_type", "get_salary_display", "balance", "created_at")
+	list_filter = ("role", "branch", "salary_type")
 	search_fields = ("user__phone_number", "branch__name", "title")
 	autocomplete_fields = ("user", "branch", "role_ref")
 	fieldsets = (
 		(_('Asosiy ma\'lumotlar'), {
 			'fields': ('user', 'branch', 'role', 'role_ref', 'title')
 		}),
+		(_('Maosh konfiguratsiyasi'), {
+			'fields': ('salary_type', 'monthly_salary', 'hourly_rate', 'per_lesson_rate'),
+			'description': 'Maosh turiga qarab tegishli maydonni to\'ldiring.'
+		}),
 		(_('Moliya'), {
-			'fields': ('monthly_salary', 'balance')
+			'fields': ('balance',)
 		}),
 	)
 	inlines = [AdminProfileInline]
+	
+	@admin.display(description='Maosh')
+	def get_salary_display(self, obj):
+		return obj.get_salary_display()
 

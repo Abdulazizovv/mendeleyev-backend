@@ -71,6 +71,7 @@ INSTALLED_APPS = [
     "apps.botapp",
     "apps.common",
     "apps.branch",
+    "apps.school",
 ]
 
 MIDDLEWARE = [

@@ -33,6 +33,8 @@ urlpatterns = [
     path('api/v1/profile/', include('auth.profiles.urls')),
     # Branch (admin tools)
     path('api/branches/', include('apps.branch.urls')),
+    # School module
+    path('api/school/', include('apps.school.academic.urls')),
     # API Schema & Docs
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),

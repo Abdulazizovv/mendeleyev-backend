@@ -112,7 +112,8 @@ class BranchMembershipSerializer(serializers.Serializer):
     role = serializers.CharField()
     effective_role = serializers.CharField(required=False, allow_null=True)
     role_ref_id = serializers.UUIDField(required=False, allow_null=True)
-    salary = serializers.IntegerField(required=False, allow_null=True, help_text="Oylik maosh (so'm, butun son)")
+    salary_type = serializers.CharField(required=False, allow_null=True, help_text="Maosh turi: monthly/hourly/per_lesson")
+    salary = serializers.IntegerField(required=False, allow_null=True, help_text="Maosh (salary_type ga qarab)")
     balance = serializers.IntegerField(required=False, allow_null=True, help_text="Balans (so'm, butun son)")
     title = serializers.CharField(allow_blank=True)
     role_data = serializers.SerializerMethodField()
@@ -160,6 +161,7 @@ class BranchMembershipSerializer(serializers.Serializer):
             "role": m.role,
             "effective_role": m.get_effective_role(),
             "role_ref_id": str(m.role_ref.id) if m.role_ref else None,
+            "salary_type": m.salary_type,
             "salary": m.get_salary() if m.get_salary() else None,
             "balance": m.balance if m.balance else 0,
             "title": m.title or "",

@@ -3,23 +3,31 @@ from __future__ import annotations
 from typing import Iterable
 
 from django.shortcuts import get_object_or_404
+from django.db import models
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
+from rest_framework import generics
+from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView, RetrieveUpdateAPIView
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 
-from .models import Branch, BranchStatuses, BranchMembership, Role
+from .models import Branch, BranchStatuses, BranchMembership, Role, BranchSettings
 from .serializers import (
     BranchListSerializer,
     RoleSerializer,
     RoleCreateSerializer,
     BranchMembershipDetailSerializer,
+    BranchMembershipCreateSerializer,
     BalanceUpdateSerializer,
+)
+from .settings_serializers import (
+    BranchSettingsSerializer,
+    BranchSettingsUpdateSerializer,
 )
 from auth.users.models import User
 from apps.common.permissions import HasBranchRole, IsSuperAdmin, IsBranchAdmin
+from apps.common.mixins import AuditTrailMixin
 
 
 class ManagedBranchesView(APIView):
@@ -71,13 +79,24 @@ class ManagedBranchesView(APIView):
 		"""Allow only SuperAdmin to update managed branches list of a target admin user.
 
 		Expected input: { "user_id": "<uuid>", "branch_ids": ["<uuid>", ...] }
+		Note: branch_ids must be explicitly provided. Only the provided branch_ids will be set.
 		"""
 		user: User = request.user
 		if not self._is_super_admin(user):
 			return Response({"detail": "Forbidden"}, status=403)
 
 		user_id = request.data.get("user_id")
-		branch_ids: Iterable[str] = request.data.get("branch_ids", [])
+		branch_ids = request.data.get("branch_ids")
+		
+		if user_id is None:
+			return Response({"detail": "user_id is required"}, status=400)
+		
+		if branch_ids is None:
+			return Response({"detail": "branch_ids is required"}, status=400)
+		
+		if not isinstance(branch_ids, list):
+			return Response({"detail": "branch_ids must be a list"}, status=400)
+		
 		target_user = get_object_or_404(User, id=user_id)
 
 		# Ensure target user has an admin-class membership we can attach the profile to
@@ -88,15 +107,29 @@ class ManagedBranchesView(APIView):
 			return Response({"detail": "Target user has no admin membership"}, status=400)
 
 		# Only ACTIVE branches are allowed to be assigned
+		# Filter only the provided branch_ids (not all branches)
 		branches = Branch.objects.filter(id__in=list(branch_ids), status=BranchStatuses.ACTIVE)
+		
+		# Check if all requested branches exist and are active
+		if branches.count() != len(branch_ids):
+			found_ids = set(branches.values_list('id', flat=True))
+			requested_ids = set(branch_ids)
+			missing = requested_ids - found_ids
+			return Response({
+				"detail": f"Some branches not found or not active: {list(missing)}"
+			}, status=400)
 
 		# AdminProfile is per-membership; we attach the managed list to the chosen admin membership
 		from auth.profiles.models import AdminProfile
 		ap, _ = AdminProfile.objects.get_or_create(user_branch=target_membership)
+		# set() will replace all existing managed branches with the new list
 		ap.managed_branches.set(branches)
 		ap.save()
 
-		return Response({"detail": "Managed branches updated successfully."})
+		return Response({
+			"detail": "Managed branches updated successfully.",
+			"managed_branches": [{"id": str(b.id), "name": b.name} for b in branches]
+		})
 
 
 class RoleListView(ListCreateAPIView):
@@ -110,24 +143,33 @@ class RoleListView(ListCreateAPIView):
 	serializer_class = RoleSerializer
 	
 	def get_queryset(self):
-		"""Get roles for the specified branch."""
+		"""Get roles for the specified branch.
+		
+		Includes:
+		- Branch-specific roles (branch=branch)
+		- Global roles (branch=None)
+		"""
 		branch_id = self.kwargs.get('branch_id')
 		branch = get_object_or_404(Branch, id=branch_id)
 		
 		# Check permissions
 		user = self.request.user
 		if user.is_superuser:
-			# SuperAdmin can see all roles
-			return Role.objects.filter(branch=branch)
+			# SuperAdmin can see all roles (branch-specific + global)
+			return Role.objects.filter(
+				models.Q(branch=branch) | models.Q(branch=None)
+			).prefetch_related('memberships')
 		else:
-			# BranchAdmin can only see roles for their branch
+			# BranchAdmin can only see roles for their branch (branch-specific + global)
 			membership = BranchMembership.objects.filter(
 				user=user,
 				branch=branch,
 				role__in=['branch_admin', 'super_admin']
 			).first()
 			if membership:
-				return Role.objects.filter(branch=branch)
+				return Role.objects.filter(
+					models.Q(branch=branch) | models.Q(branch=None)
+				).prefetch_related('memberships')
 			return Role.objects.none()
 	
 	def get_serializer_class(self):
@@ -186,14 +228,21 @@ class RoleDetailView(RetrieveUpdateDestroyAPIView):
 	lookup_field = 'id'
 	
 	def get_queryset(self):
-		"""Get roles for the specified branch."""
+		"""Get roles for the specified branch.
+		
+		Includes:
+		- Branch-specific roles (branch=branch)
+		- Global roles (branch=None)
+		"""
 		branch_id = self.kwargs.get('branch_id')
 		branch = get_object_or_404(Branch, id=branch_id)
 		
 		# Check permissions
 		user = self.request.user
 		if user.is_superuser:
-			return Role.objects.filter(branch=branch)
+			return Role.objects.filter(
+				models.Q(branch=branch) | models.Q(branch=None)
+			).prefetch_related('memberships')
 		else:
 			membership = BranchMembership.objects.filter(
 				user=user,
@@ -201,7 +250,9 @@ class RoleDetailView(RetrieveUpdateDestroyAPIView):
 				role__in=['branch_admin', 'super_admin']
 			).first()
 			if membership:
-				return Role.objects.filter(branch=branch)
+				return Role.objects.filter(
+					models.Q(branch=branch) | models.Q(branch=None)
+				).prefetch_related('memberships')
 			return Role.objects.none()
 	
 	def perform_update(self, serializer):
@@ -227,20 +278,34 @@ class RoleDetailView(RetrieveUpdateDestroyAPIView):
 		return super().patch(request, *args, **kwargs)
 	
 	@extend_schema(
-		summary="Delete a role",
+		summary="Delete a role (soft delete)",
 		responses={204: None},
 	)
 	def delete(self, request, *args, **kwargs):
-		return super().delete(request, *args, **kwargs)
+		"""Soft delete a role by setting is_active=False."""
+		instance = self.get_object()
+		
+		# Check if role has active memberships
+		active_memberships = instance.memberships.filter(deleted_at__isnull=True).count()
+		if active_memberships > 0:
+			return Response(
+				{"detail": f"Bu roldan {active_memberships} ta xodim foydalanmoqda. Avval xodimlarni boshqa roliga o'tkazing."},
+				status=status.HTTP_400_BAD_REQUEST
+			)
+		
+		# Soft delete: set is_active=False
+		instance.is_active = False
+		instance.updated_by = request.user
+		instance.save(update_fields=['is_active', 'updated_by'])
+		
+		return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class MembershipListView(ListCreateAPIView):
-	"""List memberships for a branch.
+	"""List and create memberships for a branch.
 	
-	- SuperAdmin: can see all memberships
-	- BranchAdmin: can see memberships for their branch
-	
-	Note: POST (create) is not implemented - memberships should be created via admin or separate endpoint.
+	- SuperAdmin: can see and create memberships for any branch
+	- BranchAdmin: can see memberships for their branch (create not allowed)
 	"""
 	
 	permission_classes = [IsAuthenticated, HasBranchRole]
@@ -254,7 +319,7 @@ class MembershipListView(ListCreateAPIView):
 		# Check permissions
 		user = self.request.user
 		if user.is_superuser:
-			return BranchMembership.objects.filter(branch=branch)
+			return BranchMembership.objects.filter(branch=branch).select_related('user', 'branch', 'role_ref')
 		else:
 			membership = BranchMembership.objects.filter(
 				user=user,
@@ -262,15 +327,41 @@ class MembershipListView(ListCreateAPIView):
 				role__in=['branch_admin', 'super_admin']
 			).first()
 			if membership:
-				return BranchMembership.objects.filter(branch=branch)
+				return BranchMembership.objects.filter(branch=branch).select_related('user', 'branch', 'role_ref')
 			return BranchMembership.objects.none()
 	
+	def get_serializer_class(self):
+		"""Use different serializer for create."""
+		if self.request.method == 'POST':
+			return BranchMembershipCreateSerializer
+		return BranchMembershipDetailSerializer
+	
+	def perform_create(self, serializer):
+		"""Create membership - only SuperAdmin can create."""
+		if not self.request.user.is_superuser:
+			from rest_framework.exceptions import PermissionDenied
+			raise PermissionDenied("Only SuperAdmin can create memberships via API.")
+		
+		branch_id = self.kwargs.get('branch_id')
+		branch = get_object_or_404(Branch, id=branch_id)
+		serializer.save(branch=branch, created_by=self.request.user, updated_by=self.request.user)
+	
+	@extend_schema(
+		summary="List memberships for a branch",
+		parameters=[
+			OpenApiParameter('branch_id', type=str, location=OpenApiParameter.PATH),
+		],
+	)
+	def get(self, request, *args, **kwargs):
+		return super().get(request, *args, **kwargs)
+	
+	@extend_schema(
+		summary="Create a new membership (SuperAdmin only)",
+		request=BranchMembershipCreateSerializer,
+		responses={201: BranchMembershipDetailSerializer},
+	)
 	def post(self, request, *args, **kwargs):
-		"""Create membership is not allowed via this endpoint."""
-		return Response(
-			{"detail": "Membership creation is not supported via this endpoint. Use admin panel or separate endpoint."},
-			status=status.HTTP_405_METHOD_NOT_ALLOWED
-		)
+		return super().post(request, *args, **kwargs)
 	
 	@extend_schema(
 		summary="List memberships for a branch",
@@ -341,3 +432,70 @@ class BalanceUpdateView(APIView):
 			return Response(response_serializer.data, status=status.HTTP_200_OK)
 		
 		return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class BranchSettingsView(AuditTrailMixin, RetrieveUpdateAPIView):
+	"""Filial sozlamalari.
+	
+	- SuperAdmin: istalgan filial sozlamalarini ko'rish va yangilash
+	- BranchAdmin: faqat o'z filial sozlamalarini ko'rish va yangilash
+	"""
+	
+	permission_classes = [IsAuthenticated, HasBranchRole]
+	required_branch_roles = ("branch_admin", "super_admin")
+	serializer_class = BranchSettingsSerializer
+	lookup_url_kwarg = 'branch_id'
+	lookup_field = 'branch_id'
+	
+	def get_object(self):
+		"""Get or create branch settings."""
+		branch_id = self.kwargs.get('branch_id')
+		branch = get_object_or_404(Branch, id=branch_id)
+		
+		# Check permissions
+		user = self.request.user
+		if not user.is_superuser:
+			membership = BranchMembership.objects.filter(
+				user=user,
+				branch=branch,
+				role__in=['branch_admin', 'super_admin']
+			).first()
+			if not membership:
+				from rest_framework.exceptions import PermissionDenied
+				raise PermissionDenied("You can only view/edit settings for your own branch.")
+		
+		# Get or create settings
+		settings, created = BranchSettings.objects.get_or_create(branch=branch)
+		if created:
+			settings.created_by = user
+			settings.updated_by = user
+			settings.save()
+		
+		return settings
+	
+	def get_serializer_class(self):
+		"""Use different serializer for update."""
+		if self.request.method in ['PUT', 'PATCH']:
+			return BranchSettingsUpdateSerializer
+		return BranchSettingsSerializer
+	
+	def perform_update(self, serializer):
+		"""Set updated_by on settings update."""
+		serializer.save(updated_by=self.request.user)
+	
+	@extend_schema(
+		summary="Filial sozlamalarini ko'rish",
+		parameters=[
+			OpenApiParameter('branch_id', type=str, location=OpenApiParameter.PATH),
+		],
+	)
+	def get(self, request, *args, **kwargs):
+		return super().get(request, *args, **kwargs)
+	
+	@extend_schema(
+		summary="Filial sozlamalarini yangilash",
+		request=BranchSettingsUpdateSerializer,
+		responses={200: BranchSettingsSerializer},
+	)
+	def patch(self, request, *args, **kwargs):
+		return super().patch(request, *args, **kwargs)

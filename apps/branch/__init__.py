@@ -16,5 +16,3 @@ else:
 			from .models import BranchMembership as _BranchMembership
 			return _BranchMembership
 		raise AttributeError(name)
-
-

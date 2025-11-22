@@ -102,6 +102,102 @@ class Branch(BaseModel):
         if not self.slug:
             self.slug = slugify(self.name)
         super().save(*args, **kwargs)
+    
+    def get_settings(self):
+        """Get branch settings, create if not exists."""
+        settings, created = BranchSettings.objects.get_or_create(branch=self)
+        return settings
+
+
+class BranchSettings(BaseModel):
+    """Filial sozlamalari.
+    
+    Har bir filial o'z sozlamalariga ega bo'ladi.
+    Masalan: dars vaqti, tanaffus vaqti, boshqa konfiguratsiyalar.
+    """
+    
+    branch = models.OneToOneField(
+        Branch,
+        on_delete=models.CASCADE,
+        related_name='settings',
+        verbose_name='Filial'
+    )
+    
+    # Dars jadvali sozlamalari
+    lesson_duration_minutes = models.IntegerField(
+        default=45,
+        verbose_name='Dars davomiyligi (daqiqa)',
+        help_text='Har bir darsning davomiyligi daqiqada'
+    )
+    break_duration_minutes = models.IntegerField(
+        default=10,
+        verbose_name='Tanaffus davomiyligi (daqiqa)',
+        help_text='Darslar orasidagi tanaffus davomiyligi'
+    )
+    school_start_time = models.TimeField(
+        default='08:00',
+        verbose_name='Maktab boshlanish vaqti',
+        help_text='Kunlik darslar boshlanish vaqti'
+    )
+    school_end_time = models.TimeField(
+        default='17:00',
+        verbose_name='Maktab tugash vaqti',
+        help_text='Kunlik darslar tugash vaqti'
+    )
+    
+    # Akademik sozlamalar
+    academic_year_start_month = models.IntegerField(
+        default=9,
+        choices=[(i, f'{i}-oy') for i in range(1, 13)],
+        verbose_name='Akademik yil boshlanish oyi',
+        help_text='Akademik yil qaysi oyda boshlanadi (1-12)'
+    )
+    academic_year_end_month = models.IntegerField(
+        default=6,
+        choices=[(i, f'{i}-oy') for i in range(1, 13)],
+        verbose_name='Akademik yil tugash oyi',
+        help_text='Akademik yil qaysi oyda tugaydi (1-12)'
+    )
+    
+    # Moliya sozlamalari
+    currency = models.CharField(
+        max_length=10,
+        default='UZS',
+        verbose_name='Valyuta',
+        help_text='Filial valyutasi (masalan: UZS, USD)'
+    )
+    currency_symbol = models.CharField(
+        max_length=5,
+        default='so\'m',
+        verbose_name='Valyuta belgisi',
+        help_text='Valyuta belgisi (masalan: so\'m, $)'
+    )
+    
+    # Boshqa sozlamalar (JSON formatida)
+    additional_settings = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name='Qo\'shimcha sozlamalar',
+        help_text='Qo\'shimcha sozlamalar JSON formatida. Masalan: {"max_students_per_class": 30, "grading_system": "5"}'
+    )
+    
+    class Meta:
+        verbose_name = 'Filial sozlamalari'
+        verbose_name_plural = 'Filial sozlamalari'
+        indexes = [
+            models.Index(fields=['branch']),
+        ]
+    
+    def __str__(self):
+        return f"Sozlamalar: {self.branch.name}"
+    
+    def save(self, *args, **kwargs):
+        """Auto-create settings when branch is created."""
+        if not self.pk:
+            # Ensure branch exists
+            if not self.branch_id:
+                raise ValueError("Branch must be set before saving settings")
+        super().save(*args, **kwargs)
 
 
 class BranchRole(models.TextChoices):
@@ -111,6 +207,14 @@ class BranchRole(models.TextChoices):
     TEACHER = 'teacher', 'Teacher'
     STUDENT = 'student', 'Student'
     PARENT = 'parent', 'Parent'
+    OTHER = 'other', 'Boshqa xodim'
+
+
+class SalaryType(models.TextChoices):
+    """Salary calculation types for employees."""
+    MONTHLY = 'monthly', 'Oylik (aniq belgilangan)'
+    HOURLY = 'hourly', 'Soatlik'
+    PER_LESSON = 'per_lesson', 'Dars uchun'
 
 
 class Role(BaseModel):
@@ -221,11 +325,34 @@ class BranchMembership(BaseModel):
         verbose_name='Lavozim'
     )
     
-    # Salary - stored per membership, not per role
+    # Salary configuration - stored per membership, not per role
+    salary_type = models.CharField(
+        max_length=20,
+        choices=SalaryType.choices,
+        default=SalaryType.MONTHLY,
+        verbose_name='Maosh turi',
+        help_text='Maosh qanday hisoblanadi: oylik, soatlik yoki dars uchun'
+    )
+    
+    # Salary fields - depends on salary_type
     monthly_salary = models.IntegerField(
         default=0,
         verbose_name='Oylik maosh',
-        help_text='Oylik maosh (so\'m, butun son). Har bir xodim uchun alohida belgilanadi.'
+        help_text='Oylik maosh (so\'m, butun son). salary_type="monthly" bo\'lganda ishlatiladi.'
+    )
+    hourly_rate = models.IntegerField(
+        default=0,
+        null=True,
+        blank=True,
+        verbose_name='Soatlik stavka',
+        help_text='Soatlik stavka (so\'m, butun son). salary_type="hourly" bo\'lganda ishlatiladi.'
+    )
+    per_lesson_rate = models.IntegerField(
+        default=0,
+        null=True,
+        blank=True,
+        verbose_name='Dars uchun stavka',
+        help_text='Har bir dars uchun stavka (so\'m, butun son). salary_type="per_lesson" bo\'lganda ishlatiladi.'
     )
     
     # Balance for salary management
@@ -267,8 +394,30 @@ class BranchMembership(BaseModel):
         return self.role
     
     def get_salary(self):
-        """Get monthly salary for this membership."""
-        return self.monthly_salary
+        """Get current salary based on salary_type.
+        
+        Returns:
+            - For monthly: monthly_salary
+            - For hourly: hourly_rate (per hour)
+            - For per_lesson: per_lesson_rate (per lesson)
+        """
+        if self.salary_type == SalaryType.MONTHLY:
+            return self.monthly_salary
+        elif self.salary_type == SalaryType.HOURLY:
+            return self.hourly_rate or 0
+        elif self.salary_type == SalaryType.PER_LESSON:
+            return self.per_lesson_rate or 0
+        return 0
+    
+    def get_salary_display(self):
+        """Get human-readable salary information."""
+        if self.salary_type == SalaryType.MONTHLY:
+            return f"{self.monthly_salary:,} so'm/oy"
+        elif self.salary_type == SalaryType.HOURLY:
+            return f"{self.hourly_rate or 0:,} so'm/soat"
+        elif self.salary_type == SalaryType.PER_LESSON:
+            return f"{self.per_lesson_rate or 0:,} so'm/dars"
+        return "Maosh belgilanmagan"
     
     def add_to_balance(self, amount: int):
         """Add amount to balance."""
