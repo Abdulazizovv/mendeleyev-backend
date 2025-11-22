@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from rest_framework import serializers
-from decimal import Decimal
 
-from .models import Branch, Role, BranchMembership, SalaryType
+from .models import Branch, Role, BranchMembership
 
 
 class BranchListSerializer(serializers.ModelSerializer):
@@ -16,7 +15,6 @@ class RoleSerializer(serializers.ModelSerializer):
     """Serializer for Role model."""
     
     branch_name = serializers.CharField(source='branch.name', read_only=True, allow_null=True)
-    salary = serializers.SerializerMethodField()
     
     class Meta:
         model = Role
@@ -25,11 +23,6 @@ class RoleSerializer(serializers.ModelSerializer):
             "name",
             "branch",
             "branch_name",
-            "salary_type",
-            "monthly_salary",
-            "hourly_rate",
-            "per_item_rate",
-            "salary",
             "permissions",
             "description",
             "is_active",
@@ -37,10 +30,6 @@ class RoleSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
-    
-    def get_salary(self, obj):
-        """Get current salary based on salary_type."""
-        return float(obj.get_salary()) if obj.get_salary() else 0
 
 
 class RoleCreateSerializer(serializers.ModelSerializer):
@@ -51,36 +40,10 @@ class RoleCreateSerializer(serializers.ModelSerializer):
         fields = [
             "name",
             "branch",
-            "salary_type",
-            "monthly_salary",
-            "hourly_rate",
-            "per_item_rate",
             "permissions",
             "description",
             "is_active",
         ]
-    
-    def validate(self, data):
-        """Validate salary fields based on salary_type."""
-        salary_type = data.get('salary_type', SalaryType.MONTHLY)
-        
-        if salary_type == SalaryType.MONTHLY:
-            if not data.get('monthly_salary'):
-                raise serializers.ValidationError({
-                    "monthly_salary": "Oylik maosh belgilanishi kerak."
-                })
-        elif salary_type == SalaryType.HOURLY:
-            if not data.get('hourly_rate'):
-                raise serializers.ValidationError({
-                    "hourly_rate": "Soatlik stavka belgilanishi kerak."
-                })
-        elif salary_type == SalaryType.PER_ITEM:
-            if not data.get('per_item_rate'):
-                raise serializers.ValidationError({
-                    "per_item_rate": "Har bir uchun stavka belgilanishi kerak."
-                })
-        
-        return data
 
 
 class BranchMembershipDetailSerializer(serializers.ModelSerializer):
@@ -91,7 +54,7 @@ class BranchMembershipDetailSerializer(serializers.ModelSerializer):
     branch_name = serializers.CharField(source='branch.name', read_only=True)
     role_name = serializers.CharField(source='role_ref.name', read_only=True, allow_null=True)
     effective_role = serializers.SerializerMethodField()
-    salary = serializers.SerializerMethodField()
+    salary = serializers.IntegerField(source='monthly_salary', read_only=True)
     
     class Meta:
         model = BranchMembership
@@ -107,6 +70,7 @@ class BranchMembershipDetailSerializer(serializers.ModelSerializer):
             "role_name",
             "effective_role",
             "title",
+            "monthly_salary",
             "balance",
             "salary",
             "created_at",
@@ -131,19 +95,13 @@ class BranchMembershipDetailSerializer(serializers.ModelSerializer):
     def get_effective_role(self, obj):
         """Get effective role name."""
         return obj.get_effective_role()
-    
-    def get_salary(self, obj):
-        """Get salary from role."""
-        return float(obj.get_salary()) if obj.get_salary() else 0
 
 
 class BalanceUpdateSerializer(serializers.Serializer):
     """Serializer for updating membership balance."""
     
-    amount = serializers.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        help_text="Qo'shish uchun musbat, ayirish uchun manfiy qiymat"
+    amount = serializers.IntegerField(
+        help_text="Qo'shish uchun musbat, ayirish uchun manfiy qiymat (so'm, butun son)"
     )
     note = serializers.CharField(
         max_length=255,

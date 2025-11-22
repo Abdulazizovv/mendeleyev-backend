@@ -112,8 +112,8 @@ class BranchMembershipSerializer(serializers.Serializer):
     role = serializers.CharField()
     effective_role = serializers.CharField(required=False, allow_null=True)
     role_ref_id = serializers.UUIDField(required=False, allow_null=True)
-    salary = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
-    balance = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    salary = serializers.IntegerField(required=False, allow_null=True, help_text="Oylik maosh (so'm, butun son)")
+    balance = serializers.IntegerField(required=False, allow_null=True, help_text="Balans (so'm, butun son)")
     title = serializers.CharField(allow_blank=True)
     role_data = serializers.SerializerMethodField()
 
@@ -160,8 +160,8 @@ class BranchMembershipSerializer(serializers.Serializer):
             "role": m.role,
             "effective_role": m.get_effective_role(),
             "role_ref_id": str(m.role_ref.id) if m.role_ref else None,
-            "salary": float(m.get_salary()) if m.get_salary() else None,
-            "balance": float(m.balance) if m.balance else 0,
+            "salary": m.get_salary() if m.get_salary() else None,
+            "balance": m.balance if m.balance else 0,
             "title": m.title or "",
         }
     # Dynamically attach role_data now (optional convenience); serializer will also compute.

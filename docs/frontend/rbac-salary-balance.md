@@ -26,8 +26,8 @@ Mendeleyev Backend endi quyidagi yangi imkoniyatlarga ega:
     "role": "teacher",
     "effective_role": "Math Teacher",
     "role_ref_id": "<uuid>",
-    "salary": "5000000.00",
-    "balance": "1500000.00",
+    "salary": 5000000,
+    "balance": 1500000,
     "title": "Senior Teacher",
     "role_data": {...}
   },
@@ -52,8 +52,10 @@ Mendeleyev Backend endi quyidagi yangi imkoniyatlarga ega:
 
 - **`effective_role`** (string) — Samarali rol nomi. Agar `role_ref` mavjud bo'lsa, `role_ref.name`, aks holda `role` maydoni.
 - **`role_ref_id`** (UUID, nullable) — Role modeliga havola. Agar mavjud bo'lsa, bu yangi tizim ishlatilmoqda.
-- **`salary`** (decimal, nullable) — Xodimning maoshi. `role_ref` dan olinadi.
-- **`balance`** (decimal) — Xodimning balansi (so'm). Ish haqini ko'rish va boshqarish uchun.
+- **`salary`** (integer, nullable) — Xodimning maoshi. `monthly_salary` dan olinadi (computed field).
+- **`balance`** (integer) — Xodimning balansi (so'm, butun son). Ish haqini ko'rish va boshqarish uchun.
+
+**Eslatma**: Maosh va balans butun sonlar sifatida saqlanadi, chunki valyuta so'm va kasr qismlar kerak emas.
 
 ## Role CRUD API
 
@@ -67,11 +69,6 @@ interface Role {
   name: string;
   branch: string | null;
   branch_name: string | null;
-  salary_type: 'monthly' | 'hourly' | 'per_item';
-  monthly_salary: string;
-  hourly_rate: string | null;
-  per_item_rate: string | null;
-  salary: number; // Computed field
   permissions: Record<string, string[]>;
   description: string;
   is_active: boolean;
@@ -79,6 +76,8 @@ interface Role {
   updated_at: string;
 }
 ```
+
+**Eslatma**: Maosh endi Role modelida emas, balki BranchMembership modelida saqlanadi.
 
 **Example Request:**
 ```typescript
@@ -103,8 +102,6 @@ const roles: Role[] = await response.json();
 ```json
 {
   "name": "Director",
-  "salary_type": "monthly",
-  "monthly_salary": "5000000",
   "permissions": {
     "academic": ["view_grades", "edit_grades"],
     "finance": ["view_payments"]
@@ -118,8 +115,6 @@ const roles: Role[] = await response.json();
 ```typescript
 const newRole = {
   name: "Director",
-  salary_type: "monthly",
-  monthly_salary: "5000000",
   permissions: {
     academic: ["view_grades", "edit_grades"],
     finance: ["view_payments"]
@@ -147,10 +142,14 @@ const role: Role = await response.json();
 **Request:**
 ```json
 {
-  "monthly_salary": "6000000",
+  "permissions": {
+    "academic": ["view_grades"]
+  },
   "is_active": false
 }
 ```
+
+**Eslatma**: Maosh BranchMembership modelida saqlanadi, Role modelida emas.
 
 ### Rolni o'chirish
 
@@ -177,8 +176,9 @@ const role: Role = await response.json();
     "role_name": "Math Teacher",
     "effective_role": "Math Teacher",
     "title": "Senior Teacher",
-    "balance": "1500000.00",
-    "salary": "5000000.00",
+    "monthly_salary": 5000000,
+    "balance": 1500000,
+    "salary": 5000000,
     "created_at": "2025-01-01T00:00:00Z",
     "updated_at": "2025-01-01T00:00:00Z"
   }
@@ -196,13 +196,14 @@ const role: Role = await response.json();
 **Request:**
 ```json
 {
-  "amount": "500000.00",
+  "amount": 500000,
   "note": "Ish haqi to'lovi"
 }
 ```
 
 - `amount` musbat bo'lsa — balansga qo'shadi
 - `amount` manfiy bo'lsa — balansdan ayiradi (balans yetarli bo'lishi kerak)
+- `amount` butun son bo'lishi kerak (so'm)
 
 **Example:**
 ```typescript
@@ -218,7 +219,7 @@ const addBalance = async (membershipId: string, amount: number, note: string) =>
         'X-Branch-Id': branchId
       },
       body: JSON.stringify({
-        amount: amount.toString(),
+        amount: Math.round(amount), // Butun songa aylantirish
         note
       })
     }
@@ -282,12 +283,12 @@ function BalanceManagement({ membership }) {
   const [note, setNote] = useState('');
   
   const handleAddBalance = async () => {
-    await updateBalance(membership.branch, membership.id, parseFloat(amount), note);
+    await updateBalance(membership.branch, membership.id, parseInt(amount), note);
     // Refresh membership data
   };
   
   const handleSubtractBalance = async () => {
-    await updateBalance(membership.branch, membership.id, -parseFloat(amount), note);
+    await updateBalance(membership.branch, membership.id, -parseInt(amount), note);
     // Refresh membership data
   };
   
@@ -313,33 +314,29 @@ function BalanceManagement({ membership }) {
 }
 ```
 
-### 4. Salary Type Selector
+### 4. Monthly Salary Input (BranchMembership uchun)
 
 ```tsx
-function RoleForm({ onSubmit }) {
-  const [salaryType, setSalaryType] = useState('monthly');
+function MembershipForm({ onSubmit }) {
+  const [monthlySalary, setMonthlySalary] = useState('');
   
   return (
     <form onSubmit={onSubmit}>
-      <select value={salaryType} onChange={(e) => setSalaryType(e.target.value)}>
-        <option value="monthly">Oylik</option>
-        <option value="hourly">Soatlik</option>
-        <option value="per_item">Har bir uchun</option>
-      </select>
-      
-      {salaryType === 'monthly' && (
-        <input type="number" name="monthly_salary" placeholder="Oylik maosh" />
-      )}
-      {salaryType === 'hourly' && (
-        <input type="number" name="hourly_rate" placeholder="Soatlik stavka" />
-      )}
-      {salaryType === 'per_item' && (
-        <input type="number" name="per_item_rate" placeholder="Har bir uchun stavka" />
-      )}
+      <input
+        type="number"
+        value={monthlySalary}
+        onChange={(e) => setMonthlySalary(e.target.value)}
+        placeholder="Oylik maosh (so'm, butun son)"
+        min="0"
+        step="1"
+      />
+      <button type="submit">Saqlash</button>
     </form>
   );
 }
 ```
+
+**Eslatma**: Maosh endi BranchMembership modelida saqlanadi, har bir xodim uchun alohida belgilanadi.
 
 ## Xatoliklar
 
@@ -349,15 +346,17 @@ function RoleForm({ onSubmit }) {
 
 ### 400 Bad Request
 - Balans yetarli emas (ayirishda)
-- Maosh maydonlari noto'g'ri to'ldirilganda
+- Maosh yoki balans maydonlari noto'g'ri to'ldirilganda (masalan, kasr qism bilan)
 
 ## Eslatmalar
 
 1. **Backward Compatibility**: Eski `role` maydoni hali ham mavjud va ishlaydi. `effective_role` yangi va eski tizimlarni birlashtiradi.
 
-2. **Salary Calculation**: `salary` maydoni `role_ref.get_salary()` metodidan olinadi va `salary_type` ga qarab qaytaradi.
+2. **Salary Storage**: Maosh endi `BranchMembership.monthly_salary` maydonida saqlanadi, `Role` modelida emas. Bu har bir xodim uchun alohida maosh belgilash imkonini beradi.
 
-3. **Balance Updates**: Balans yangilanishi audit trail bilan qayd etiladi (`updated_by`).
+3. **Integer Values**: Maosh va balans butun sonlar (IntegerField) sifatida saqlanadi, chunki valyuta so'm va kasr qismlar kerak emas.
 
-4. **Permissions**: `Role.permissions` JSON formatida saqlanadi va kelajakda maktab modullarida ishlatiladi.
+4. **Balance Updates**: Balans yangilanishi audit trail bilan qayd etiladi (`updated_by`).
+
+5. **Permissions**: `Role.permissions` JSON formatida saqlanadi va kelajakda maktab modullarida ishlatiladi.
 

@@ -113,20 +113,14 @@ class BranchRole(models.TextChoices):
     PARENT = 'parent', 'Parent'
 
 
-class SalaryType(models.TextChoices):
-    """Salary calculation types."""
-    MONTHLY = 'monthly', 'Oylik'
-    HOURLY = 'hourly', 'Soatlik'
-    PER_ITEM = 'per_item', 'Har bir uchun'
-    # Keyinroq kengaytirish uchun
-
-
 class Role(BaseModel):
-    """Role model with salary and permissions.
+    """Role model with permissions.
     
     Roles can be branch-specific or global (branch=None).
-    Each role has a monthly salary (can be extended to hourly/per-item later).
     Permissions are stored as JSON for flexibility.
+    
+    Note: Salary is now stored in BranchMembership, not in Role.
+    This allows each employee to have a different salary even with the same role.
     """
     
     name = models.CharField(
@@ -143,38 +137,6 @@ class Role(BaseModel):
         related_name='roles',
         verbose_name='Filial',
         help_text='Agar bo\'sh bo\'lsa, bu umumiy rol (barcha filiallar uchun)'
-    )
-    
-    # Salary fields
-    salary_type = models.CharField(
-        max_length=20,
-        choices=SalaryType.choices,
-        default=SalaryType.MONTHLY,
-        verbose_name='Maosh turi',
-        help_text='Maosh qanday hisoblanadi'
-    )
-    monthly_salary = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        default=0,
-        verbose_name='Oylik maosh',
-        help_text='Oylik maosh (so\'m)'
-    )
-    hourly_rate = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        null=True,
-        blank=True,
-        verbose_name='Soatlik stavka',
-        help_text='Soatlik stavka (soatlik maosh uchun)'
-    )
-    per_item_rate = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        null=True,
-        blank=True,
-        verbose_name='Har bir uchun stavka',
-        help_text='Har bir birlik uchun stavka'
     )
     
     # Permissions stored as JSON
@@ -210,16 +172,6 @@ class Role(BaseModel):
     def __str__(self) -> str:
         branch_name = self.branch.name if self.branch else "Umumiy"
         return f"{self.name} @ {branch_name}"
-
-    def get_salary(self):
-        """Get current salary based on salary_type."""
-        if self.salary_type == SalaryType.MONTHLY:
-            return self.monthly_salary
-        elif self.salary_type == SalaryType.HOURLY:
-            return self.hourly_rate
-        elif self.salary_type == SalaryType.PER_ITEM:
-            return self.per_item_rate
-        return 0
 
 
 class BranchMembership(BaseModel):
@@ -269,13 +221,18 @@ class BranchMembership(BaseModel):
         verbose_name='Lavozim'
     )
     
+    # Salary - stored per membership, not per role
+    monthly_salary = models.IntegerField(
+        default=0,
+        verbose_name='Oylik maosh',
+        help_text='Oylik maosh (so\'m, butun son). Har bir xodim uchun alohida belgilanadi.'
+    )
+    
     # Balance for salary management
-    balance = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
+    balance = models.IntegerField(
         default=0,
         verbose_name='Balans',
-        help_text='Xodimning balansi (so\'m). Ish haqini ko\'rish va boshqarish uchun.'
+        help_text='Xodimning balansi (so\'m, butun son). Ish haqini ko\'rish va boshqarish uchun.'
     )
 
     class Meta:
@@ -310,17 +267,15 @@ class BranchMembership(BaseModel):
         return self.role
     
     def get_salary(self):
-        """Get salary from role_ref if available, otherwise return 0."""
-        if self.role_ref:
-            return self.role_ref.get_salary()
-        return 0
+        """Get monthly salary for this membership."""
+        return self.monthly_salary
     
-    def add_to_balance(self, amount):
+    def add_to_balance(self, amount: int):
         """Add amount to balance."""
         self.balance += amount
         self.save(update_fields=['balance', 'updated_at'])
     
-    def subtract_from_balance(self, amount):
+    def subtract_from_balance(self, amount: int):
         """Subtract amount from balance."""
         if self.balance >= amount:
             self.balance -= amount

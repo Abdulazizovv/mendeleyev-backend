@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
-from .models import Branch, BranchStatuses, BranchTypes, BranchMembership, Role, SalaryType
+from .models import Branch, BranchStatuses, BranchTypes, BranchMembership, Role
 from auth.profiles.models import AdminProfile
 
 
@@ -96,16 +96,13 @@ class AdminProfileInline(admin.StackedInline):
 
 @admin.register(Role)
 class RoleAdmin(admin.ModelAdmin):
-	list_display = ("name", "branch", "salary_type", "monthly_salary", "is_active", "created_at")
-	list_filter = ("salary_type", "is_active", "branch")
+	list_display = ("name", "branch", "is_active", "created_at")
+	list_filter = ("is_active", "branch")
 	search_fields = ("name", "description", "branch__name")
 	autocomplete_fields = ("branch",)
 	fieldsets = (
 		(_('Asosiy ma\'lumotlar'), {
 			'fields': ('name', 'branch', 'description', 'is_active')
-		}),
-		(_('Maosh'), {
-			'fields': ('salary_type', 'monthly_salary', 'hourly_rate', 'per_item_rate')
 		}),
 		(_('Ruxsatlar'), {
 			'fields': ('permissions',)
@@ -115,7 +112,7 @@ class RoleAdmin(admin.ModelAdmin):
 
 @admin.register(BranchMembership)
 class BranchMembershipAdmin(admin.ModelAdmin):
-	list_display = ("user", "branch", "role", "role_ref", "title", "balance", "created_at")
+	list_display = ("user", "branch", "role", "role_ref", "title", "monthly_salary", "balance", "created_at")
 	list_filter = ("role", "branch")
 	search_fields = ("user__phone_number", "branch__name", "title")
 	autocomplete_fields = ("user", "branch", "role_ref")
@@ -124,7 +121,7 @@ class BranchMembershipAdmin(admin.ModelAdmin):
 			'fields': ('user', 'branch', 'role', 'role_ref', 'title')
 		}),
 		(_('Moliya'), {
-			'fields': ('balance',)
+			'fields': ('monthly_salary', 'balance')
 		}),
 	)
 	inlines = [AdminProfileInline]

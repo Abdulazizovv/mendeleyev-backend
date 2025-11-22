@@ -24,7 +24,7 @@ Filiallar ikki turda: `school` yoki `center`. Har bir branch umumiy tizimga bog'
 - **GET** `/api/branches/{branch_id}/roles/` — Filialdagi rollar ro'yxati
   - SuperAdmin: barcha rollar
   - BranchAdmin: faqat o'z filialidagi rollar
-  - Response: `[{"id": "<uuid>", "name": "Director", "salary_type": "monthly", "monthly_salary": "5000000", ...}]`
+  - Response: `[{"id": "<uuid>", "name": "Director", "permissions": {...}, "description": "...", ...}]`
 
 - **POST** `/api/branches/{branch_id}/roles/` — Yangi rol yaratish
   - SuperAdmin: istalgan filialga rol qo'sha oladi
@@ -33,14 +33,14 @@ Filiallar ikki turda: `school` yoki `center`. Har bir branch umumiy tizimga bog'
     ```json
     {
       "name": "Director",
-      "salary_type": "monthly",
-      "monthly_salary": "5000000",
       "permissions": {"academic": ["view_grades", "edit_grades"]},
       "description": "Maktab direktori",
       "is_active": true
     }
     ```
   - Response: `{"id": "<uuid>", "name": "Director", ...}`
+  
+  **Eslatma**: Maosh endi Role modelida emas, balki BranchMembership modelida saqlanadi.
 
 - **GET** `/api/branches/{branch_id}/roles/{id}/` — Rol detallari
 - **PATCH** `/api/branches/{branch_id}/roles/{id}/` — Rolni tahrirlash
@@ -66,8 +66,9 @@ Filiallar ikki turda: `school` yoki `center`. Har bir branch umumiy tizimga bog'
         "role_name": "Math Teacher",
         "effective_role": "Math Teacher",
         "title": "Senior Teacher",
-        "balance": "1500000.00",
-        "salary": "5000000.00",
+        "monthly_salary": 5000000,
+        "balance": 1500000,
+        "salary": 5000000,
         "created_at": "...",
         "updated_at": "..."
       }
@@ -82,11 +83,11 @@ Filiallar ikki turda: `school` yoki `center`. Har bir branch umumiy tizimga bog'
   - Request:
     ```json
     {
-      "amount": "500000.00",
+      "amount": 500000,
       "note": "Ish haqi to'lovi"
     }
     ```
-  - `amount` musbat bo'lsa qo'shadi, manfiy bo'lsa ayiradi
+  - `amount` musbat bo'lsa qo'shadi, manfiy bo'lsa ayiradi (butun son, so'm)
   - Response: Yangilangan membership ma'lumotlari
 
 ## Ruxsatlar
@@ -101,13 +102,11 @@ Har bir rol quyidagi maydonlarga ega:
 
 - `name` — Rol nomi (masalan: "Director", "Teacher", "Guard")
 - `branch` — Filial (null bo'lishi mumkin — umumiy rollar uchun)
-- `salary_type` — Maosh turi: `monthly`, `hourly`, `per_item`
-- `monthly_salary` — Oylik maosh (so'm)
-- `hourly_rate` — Soatlik stavka (keyinroq)
-- `per_item_rate` — Har bir uchun stavka (keyinroq)
 - `permissions` — JSON formatida ruxsatlar
 - `description` — Rol tavsifi
 - `is_active` — Faol/faol emas
+
+**Eslatma**: Maosh endi Role modelida emas, balki BranchMembership modelida saqlanadi. Bu har bir xodim uchun alohida maosh belgilash imkonini beradi.
 
 ## Permissions Format
 
@@ -132,6 +131,9 @@ Har bir a'zolik quyidagi maydonlarga ega:
 - `role_ref` — Yangi rol (ForeignKey to Role)
 - `effective_role` — Samarali rol nomi (role_ref.name yoki role)
 - `title` — Lavozim
-- `balance` — Balans (so'm)
-- `salary` — Maosh (role_ref dan olinadi)
+- `monthly_salary` — Oylik maosh (so'm, butun son). Har bir xodim uchun alohida belgilanadi.
+- `balance` — Balans (so'm, butun son). Ish haqini ko'rish va boshqarish uchun.
+- `salary` — Maosh (monthly_salary dan olinadi, computed field)
 - Audit trail: `created_by`, `updated_by`
+
+**Eslatma**: Maosh va balans butun sonlar (IntegerField) sifatida saqlanadi, chunki valyuta so'm va kasr qismlar kerak emas.

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import Iterable
-from decimal import Decimal
 
 from django.shortcuts import get_object_or_404
 from rest_framework import status
@@ -322,7 +321,7 @@ class BalanceUpdateView(APIView):
 		
 		serializer = BalanceUpdateSerializer(data=request.data)
 		if serializer.is_valid():
-			amount = Decimal(str(serializer.validated_data['amount']))
+			amount = serializer.validated_data['amount']
 			
 			if amount > 0:
 				membership.add_to_balance(amount)
