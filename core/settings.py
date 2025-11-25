@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     # Third-party
+    "corsheaders",
     "rest_framework",
     "drf_spectacular",
     "django_celery_results",
@@ -72,10 +73,15 @@ INSTALLED_APPS = [
     "apps.common",
     "apps.branch",
     "apps.school",
+    "apps.school.academic",
+    "apps.school.classes",
+    "apps.school.subjects",
+    "apps.school.rooms",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",  # CORS middleware - eng yuqorida bo'lishi kerak
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "apps.common.middlewares.request_logging.RequestLoggingMiddleware",
@@ -352,3 +358,42 @@ SIMPLE_JWT = {
     "ALGORITHM": env.str("JWT_ALGORITHM", "HS256"),
     "SIGNING_KEY": SECRET_KEY,
 }
+
+# CORS settings for Next.js frontend
+CORS_ALLOWED_ORIGINS = env.list(
+    "CORS_ALLOWED_ORIGINS",
+    default=[
+        "http://localhost:3000",  # Next.js default port
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+    ]
+)
+
+# Development: Allow all origins (only in DEBUG mode)
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL_ORIGINS", default=True)
+else:
+    CORS_ALLOW_ALL_ORIGINS = False
+
+# CORS headers
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+]
+CORS_ALLOW_METHODS = [
+    "DELETE",
+    "GET",
+    "OPTIONS",
+    "PATCH",
+    "POST",
+    "PUT",
+]

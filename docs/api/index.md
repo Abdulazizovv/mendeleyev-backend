@@ -11,9 +11,20 @@
 
 ## Resurslar
 
+### Asosiy
 - Auth/OTP/JWT: [auth.md](auth.md)
 - Filiallar (Branch): [branch.md](branch.md)
-- Foydalanuvchilar/Profillar: (kelajakda)
+- Profillar: [profile.md](profile.md)
+
+### Maktab Moduli
+- Akademik yil va Choraklar: [academic.md](academic.md)
+- Sinflar: [classes.md](classes.md)
+- Fanlar: [subjects.md](subjects.md)
+- Binolar va Xonalar: [rooms.md](rooms.md)
+- Dars Jadvali: (kelajakda)
+- Davomat: (kelajakda)
+- Baholash: (kelajakda)
+- Moliya: (kelajakda)
 
 ## Xatolik formati
 

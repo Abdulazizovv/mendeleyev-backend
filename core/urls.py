@@ -27,14 +27,14 @@ urlpatterns = [
     path('bot-status/', bot_status, name='bot_status'),
     path('api/telegram/webhook/<str:token>', telegram_webhook, name='telegram_webhook_no_slash'),
     path('api/telegram/webhook/<str:token>/', telegram_webhook, name='telegram_webhook'),
-    # Auth v1
+    # API v1
     path('api/v1/auth/', include('auth.users.urls')),
-    # Profile v1
     path('api/v1/profile/', include('auth.profiles.urls')),
-    # Branch (admin tools)
-    path('api/branches/', include('apps.branch.urls')),
-    # School module
-    path('api/school/', include('apps.school.academic.urls')),
+    path('api/v1/branches/', include('apps.branch.urls')),
+    path('api/v1/school/', include('apps.school.academic.urls')),
+    path('api/v1/school/', include('apps.school.classes.urls')),
+    path('api/v1/school/', include('apps.school.subjects.urls')),
+    path('api/v1/school/', include('apps.school.rooms.urls')),
     # API Schema & Docs
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
