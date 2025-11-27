@@ -15,6 +15,14 @@ Ushbu hujjatlar arxitektura, API, xavfsizlik, testlar va ekspluatatsiya bo'yicha
   - [Auth (OTP, parol, branch-scoped JWT)](./api/auth.md)
   - [Branch](./api/branch.md)
   - [Profile](./api/profile.md)
+  - [Academic (Akademik yillar, Choraklar)](./api/academic.md)
+  - [Classes (Sinflar)](./api/classes.md)
+  - [Subjects (Fanlar)](./api/subjects.md)
+  - [Rooms (Binolar va Xonalar)](./api/rooms.md)
+  - [Students (O'quvchilar)](./api/students.md)
+  - [Dashboard (O'qituvchi/O'quvchi)](./api/dashboard.md)
+  - [Finance (Moliya)](./api/finance.md)
+  - [Filtering, Search va Ordering](./api/filtering-search-ordering.md)
 - Integratsiya
   - [Frontend auth integratsiyasi](./frontend/auth-integration.md)
 - Ishga tushirish va infra

@@ -356,3 +356,16 @@ class StudentRelativeSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ('id', 'created_at', 'updated_at')
 
+
+class UserCheckSerializer(serializers.Serializer):
+    """User mavjudligini tekshirish uchun serializer."""
+    phone_number = serializers.CharField(
+        max_length=20,
+        help_text='Telefon raqami (masalan: +998901234567)'
+    )
+    branch_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text='Filial ID (ixtiyoriy, agar berilmasa barcha filiallarda qidiriladi)'
+    )
+

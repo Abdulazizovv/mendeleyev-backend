@@ -137,6 +137,45 @@ Bu hujjat loyihadagi barcha modellarni tushuntirish va ularni qanday tashkil qil
 - **Munosabat**: `building` (ForeignKey to Building)
 - **Fieldlar**: name, capacity, room_type, description
 
+#### `CashRegister` (apps/school/finance/models.py)
+- **Maqsad**: Kassalar (har bir filial uchun bir nechta)
+- **Munosabat**: `branch` (ForeignKey to Branch)
+- **Fieldlar**: name, description, balance (BigIntegerField, so'm), is_active, location
+
+#### `Transaction` (apps/school/finance/models.py)
+- **Maqsad**: Barcha moliyaviy operatsiyalar
+- **Munosabatlar**:
+  - `branch` (ForeignKey to Branch)
+  - `cash_register` (ForeignKey to CashRegister)
+  - `student_profile` (ForeignKey to StudentProfile, optional)
+  - `employee_membership` (ForeignKey to BranchMembership, optional)
+- **Fieldlar**: transaction_type, status, amount (BigIntegerField, so'm), payment_method, description, reference_number, transaction_date, metadata
+
+#### `StudentBalance` (apps/school/finance/models.py)
+- **Maqsad**: O'quvchi balanslari
+- **Munosabat**: `student_profile` (OneToOne to StudentProfile)
+- **Fieldlar**: balance (BigIntegerField, so'm), notes
+
+#### `SubscriptionPlan` (apps/school/finance/models.py)
+- **Maqsad**: Abonement tariflari (sinf darajasi bo'yicha)
+- **Munosabat**: `branch` (ForeignKey to Branch, optional - umumiy tariflar uchun)
+- **Fieldlar**: name, description, grade_level_min, grade_level_max, period, price (BigIntegerField, so'm), is_active
+
+#### `Discount` (apps/school/finance/models.py)
+- **Maqsad**: Chegirmalar (foiz yoki aniq summa)
+- **Munosabat**: `branch` (ForeignKey to Branch, optional - umumiy chegirmalar uchun)
+- **Fieldlar**: name, discount_type, amount (BigIntegerField, foiz yoki summa), is_active, valid_from, valid_until, description, conditions (JSON)
+
+#### `Payment` (apps/school/finance/models.py)
+- **Maqsad**: O'quvchi to'lovlari
+- **Munosabatlar**:
+  - `student_profile` (ForeignKey to StudentProfile)
+  - `branch` (ForeignKey to Branch)
+  - `subscription_plan` (ForeignKey to SubscriptionPlan, optional)
+  - `discount` (ForeignKey to Discount, optional)
+  - `transaction` (OneToOne to Transaction)
+- **Fieldlar**: base_amount, discount_amount, final_amount (BigIntegerField, so'm), payment_method, period, payment_date, period_start, period_end, notes
+
 ---
 
 ## 🔗 Modellar O'rtasidagi Munosabatlar
@@ -158,7 +197,11 @@ Branch
   ├── BranchMembership (ForeignKey, many)
   ├── Class (ForeignKey, many)
   ├── Subject (ForeignKey, many)
-  └── Building (ForeignKey, many)
+  ├── Building (ForeignKey, many)
+  ├── CashRegister (ForeignKey, many)
+  ├── Transaction (ForeignKey, many)
+  ├── SubscriptionPlan (ForeignKey, many, optional - umumiy tariflar uchun null)
+  └── Discount (ForeignKey, many, optional - umumiy chegirmalar uchun null)
 
 Class
   ├── AcademicYear (ForeignKey)
@@ -176,6 +219,27 @@ ClassSubject
   ├── Subject (ForeignKey)
   ├── BranchMembership (teacher, ForeignKey, role=teacher)
   └── Quarter (ForeignKey)
+
+StudentProfile
+  ├── StudentBalance (OneToOne)
+  ├── Transaction (ForeignKey, many)
+  └── Payment (ForeignKey, many)
+
+CashRegister
+  └── Transaction (ForeignKey, many)
+
+Transaction
+  ├── CashRegister (ForeignKey)
+  ├── StudentProfile (ForeignKey, optional)
+  ├── BranchMembership (employee_membership, ForeignKey, optional)
+  └── Payment (OneToOne, optional)
+
+Payment
+  ├── StudentProfile (ForeignKey)
+  ├── Branch (ForeignKey)
+  ├── SubscriptionPlan (ForeignKey, optional)
+  ├── Discount (ForeignKey, optional)
+  └── Transaction (OneToOne)
 ```
 
 ---
@@ -398,6 +462,22 @@ Circular import muammolarini hal qilish uchun quyidagi qoidalarga rioya qiling:
 4. **Views/Serializers da**: Function ichida import qiling
 
 Batafsil ma'lumot: [Circular Imports Fix](circular-imports-fix.md)
+
+## 🔔 Signallar (Auto-Creation)
+
+Quyidagi modellar avtomatik yaratiladi:
+
+1. **Profile** - `User` yaratilganda (`auth.profiles.signals.create_user_profile`)
+2. **BranchSettings** - `Branch` yaratilganda (`apps.branch.signals.create_branch_settings`)
+3. **Role Profiles** - `BranchMembership` yaratilganda (`auth.profiles.signals.create_role_profiles`)
+   - `UserBranchProfile` (har doim)
+   - `StudentProfile` (role=student)
+   - `TeacherProfile` (role=teacher)
+   - `ParentProfile` (role=parent)
+   - `AdminProfile` (role=branch_admin yoki super_admin)
+4. **StudentBalance** - `StudentProfile` yaratilganda (`apps.school.finance.signals.create_student_balance`)
+
+Barcha signallar `apps.py` da `ready()` metodida import qilinadi.
 
 ## 📚 Qo'shimcha Ma'lumotlar
 

@@ -13,6 +13,15 @@ class Gender(models.TextChoices):
 	UNSPECIFIED = 'unspecified', 'Unspecified'
 
 
+class StudentStatus(models.TextChoices):
+	"""O'quvchi holati."""
+	ACTIVE = 'active', 'Aktiv'
+	ARCHIVED = 'archived', 'Arxivlangan'
+	SUSPENDED = 'suspended', 'Muzlatilgan'
+	GRADUATED = 'graduated', 'Bitirgan'
+	TRANSFERRED = 'transferred', 'O\'tkazilgan'
+
+
 class Profile(BaseModel):
 	"""Global profile for a user, independent of branch/role."""
 
@@ -147,6 +156,15 @@ class StudentProfile(BaseModel):
 		help_text='Qo\'shimcha ma\'lumotlar JSON formatida. Masalan: {"passport_number": "AB1234567", "nationality": "UZ"}'
 	)
 	
+	# O'quvchi holati
+	status = models.CharField(
+		max_length=20,
+		choices=StudentStatus.choices,
+		default=StudentStatus.ACTIVE,
+		verbose_name='Holat',
+		help_text='O\'quvchining joriy holati'
+	)
+	
 	# Eski fieldlar (backward compatibility)
 	grade = models.CharField(max_length=32, blank=True, default='', verbose_name='Sinf (eski)')
 	enrollment_date = models.DateField(blank=True, null=True, verbose_name='Qabul qilingan sana')
@@ -159,6 +177,7 @@ class StudentProfile(BaseModel):
 			models.Index(fields=['date_of_birth']),
 			models.Index(fields=['gender']),
 			models.Index(fields=['personal_number']),
+			models.Index(fields=['status']),
 		]
 
 	def __str__(self):

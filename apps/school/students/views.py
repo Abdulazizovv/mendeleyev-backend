@@ -1,3 +1,5 @@
+import re
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -15,7 +17,9 @@ from .serializers import (
     StudentProfileSerializer,
     StudentRelativeCreateSerializer,
     StudentRelativeSerializer,
+    UserCheckSerializer,
 )
+from auth.users.models import User
 from .permissions import CanCreateStudent
 from .filters import StudentProfileFilter
 from auth.profiles.models import StudentProfile, StudentRelative
@@ -40,7 +44,36 @@ class StudentCreateView(APIView):
         - branch_admin (faqat o'z filialida)
         - teacher (faqat o'z sinfida sinf rahbar bo'lsa)
         
-        Telefon raqam tasdiqlash shart emas.
+        **Xususiyatlar:**
+        - Telefon raqam tasdiqlash shart emas
+        - Barcha maydonlar ixtiyoriy (faqat phone_number va first_name majburiy)
+        - Yaqinlarni bir vaqtning o'zida yaratish mumkin (nested serializer)
+        - Barcha operatsiyalar atomic (bir xatoda bajariladi)
+        - Sinfga biriktirish imkoniyati
+        
+        **Misol so'rov:**
+        ```json
+        {
+          "phone_number": "+998901234567",
+          "first_name": "Ali",
+          "last_name": "Valiyev",
+          "branch_id": "uuid",
+          "middle_name": "Olim o'g'li",
+          "gender": "male",
+          "date_of_birth": "2010-05-15",
+          "address": "Toshkent shahri",
+          "class_id": "uuid",
+          "relatives": [
+            {
+              "relationship_type": "father",
+              "first_name": "Olim",
+              "last_name": "Valiyev",
+              "phone_number": "+998901234568",
+              "is_primary_contact": true
+            }
+          ]
+        }
+        ```
         """
     )
     @transaction.atomic
@@ -76,6 +109,7 @@ class StudentListView(generics.ListAPIView):
         'created_at',
         'date_of_birth',
         'gender',
+        'status',
     ]
     ordering = ['-created_at']  # Default ordering
     
@@ -145,7 +179,8 @@ class StudentListView(generics.ListAPIView):
         ).select_related(
             'user_branch',
             'user_branch__user',
-            'user_branch__branch'
+            'user_branch__branch',
+            'balance'  # StudentBalance - list view uchun faqat balans kerak
         ).prefetch_related('relatives')
         
         return queryset
@@ -201,8 +236,11 @@ class StudentDetailView(APIView):
             student_profile = StudentProfile.objects.select_related(
                 'user_branch',
                 'user_branch__user',
-                'user_branch__branch'
-            ).prefetch_related('relatives').get(
+                'user_branch__branch',
+                'balance'  # StudentBalance
+            ).prefetch_related(
+                'relatives'
+            ).get(
                 id=student_id,
                 deleted_at__isnull=True
             )
@@ -212,7 +250,10 @@ class StudentDetailView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        serializer = StudentProfileSerializer(student_profile)
+        serializer = StudentProfileSerializer(
+            student_profile,
+            context={'include_finance_details': True}  # Detail view uchun barcha moliyaviy ma'lumotlar
+        )
         return Response(serializer.data)
 
 
@@ -268,4 +309,224 @@ class StudentRelativeListView(APIView):
         
         response_serializer = StudentRelativeSerializer(relative)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+class PhoneLookupMixin:
+    """Telefon raqam bilan qidirish uchun umumiy mixin."""
+    lookup_serializer_class = UserCheckSerializer
+    permission_classes = [IsAuthenticated]
+
+    def _get_payload(self, request):
+        data = request.query_params if request.method == 'GET' else request.data
+        serializer = self.lookup_serializer_class(data=data)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
+    def _normalize_phone_variants(self, phone_number: str) -> list[str]:
+        """Telefon raqamni bir nechta variantga normalizatsiya qilish."""
+        raw = re.sub(r'\s+', '', str(phone_number or ''))
+        variants = {raw}
+        if raw.startswith('+'):
+            variants.add(raw[1:])
+        else:
+            variants.add(f'+{raw}')
+        return [variant for variant in variants if variant]
+
+    def _build_phone_query(self, variants):
+        """Variantlar bo'yicha Q obyektini yaratish."""
+        query = models.Q()
+        for variant in variants:
+            query |= models.Q(phone_number=variant)
+        return query
+
+
+class UserCheckView(PhoneLookupMixin, APIView):
+    """Telefon raqam orqali user mavjudligini tekshirish.
+    
+    Avval berilgan filialda qidiradi, agar topilmasa barcha filiallarda qidiradi.
+    """
+
+    @extend_schema(
+        summary="User mavjudligini tekshirish",
+        description="""
+        Telefon raqam orqali user mavjudligini tekshirish.
+        
+        Query/body parameters:
+        - phone_number (required): Telefon raqami
+        - branch_id (optional): Filial ID (agar berilmasa, barcha filiallarda qidiriladi)
+        """,
+        parameters=[
+            OpenApiParameter('phone_number', OpenApiTypes.STR, description='Telefon raqami', required=False),
+            OpenApiParameter('branch_id', OpenApiTypes.UUID, description='Filial ID (ixtiyoriy)'),
+        ],
+    )
+    def get(self, request):
+        return self._handle(request)
+    
+    def post(self, request):
+        return self._handle(request)
+    
+    def _handle(self, request):
+        params = self._get_payload(request)
+        branch_id = str(params.get('branch_id') or '') or None
+        phone_variants = self._normalize_phone_variants(params['phone_number'])
+        
+        if not phone_variants:
+            return Response(
+                {"detail": "Telefon raqam noto'g'ri formatda."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        user = User.objects.filter(self._build_phone_query(phone_variants)).first()
+        if not user:
+            return Response({
+                "exists_in_branch": False,
+                "exists_globally": False,
+                "branch_data": None,
+                "all_branches_data": [],
+            })
+        
+        memberships = BranchMembership.objects.filter(
+            user=user,
+            deleted_at__isnull=True
+        ).select_related(
+            'branch',
+            'user'
+        ).prefetch_related('student_profile')
+        
+        all_branches_data = []
+        branch_data = None
+        
+        for membership in memberships:
+            data = {
+                'branch_id': str(membership.branch.id),
+                'branch_name': membership.branch.name,
+                'role': membership.role,
+                'role_display': membership.get_role_display(),
+                'is_active': membership.is_active,
+                'created_at': membership.created_at.isoformat() if membership.created_at else None,
+                'user': {
+                    'id': str(membership.user.id),
+                    'phone_number': membership.user.phone_number,
+                    'first_name': membership.user.first_name,
+                    'last_name': membership.user.last_name,
+                }
+            }
+            
+            if membership.role == BranchRole.STUDENT and hasattr(membership, 'student_profile'):
+                profile = membership.student_profile
+                data['student_profile'] = {
+                    'id': str(profile.id),
+                    'personal_number': profile.personal_number,
+                    'full_name': profile.full_name,
+                    'status': profile.status,
+                    'status_display': profile.get_status_display(),
+                    'gender': profile.gender,
+                    'date_of_birth': profile.date_of_birth.isoformat() if profile.date_of_birth else None,
+                }
+            else:
+                data['student_profile'] = None
+            
+            all_branches_data.append(data)
+            
+            if branch_id and data['branch_id'] == branch_id:
+                branch_data = data
+        
+        return Response({
+            "exists_in_branch": branch_data is not None,
+            "exists_globally": bool(all_branches_data),
+            "branch_data": branch_data,
+            "all_branches_data": all_branches_data,
+        })
+
+
+class StudentRelativeCheckView(PhoneLookupMixin, APIView):
+    """Telefon raqam orqali o'quvchi yaqinlarini tekshirish."""
+
+    @extend_schema(
+        summary="O'quvchi yaqinlari mavjudligini tekshirish",
+        description="""
+        Telefon raqam orqali o'quvchi yaqinlari mavjudligini tekshirish.
+        
+        Query/body parameters:
+        - phone_number (required): Telefon raqami
+        - branch_id (optional): Filial ID (agar berilmasa, barcha filiallarda qidiriladi)
+        """,
+        parameters=[
+            OpenApiParameter('phone_number', OpenApiTypes.STR, description='Telefon raqami', required=False),
+            OpenApiParameter('branch_id', OpenApiTypes.UUID, description='Filial ID (ixtiyoriy)'),
+        ],
+    )
+    def get(self, request):
+        return self._handle(request)
+    
+    def post(self, request):
+        return self._handle(request)
+    
+    def _handle(self, request):
+        params = self._get_payload(request)
+        branch_id = str(params.get('branch_id') or '') or None
+        phone_variants = self._normalize_phone_variants(params['phone_number'])
+        
+        if not phone_variants:
+            return Response(
+                {"detail": "Telefon raqam noto'g'ri formatda."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        relatives = StudentRelative.objects.filter(
+            self._build_phone_query(phone_variants),
+            deleted_at__isnull=True
+        ).select_related(
+            'student_profile',
+            'student_profile__user_branch',
+            'student_profile__user_branch__user',
+            'student_profile__user_branch__branch'
+        )
+        
+        if not relatives.exists():
+            return Response({
+                "exists_in_branch": False,
+                "exists_globally": False,
+                "branch_data": None,
+                "all_branches_data": [],
+            })
+        
+        all_branches_data = []
+        branch_data = None
+        
+        for relative in relatives:
+            student_profile = relative.student_profile
+            student_branch = student_profile.user_branch.branch
+            
+            data = {
+                'id': str(relative.id),
+                'relationship_type': relative.relationship_type,
+                'relationship_type_display': relative.get_relationship_type_display(),
+                'full_name': relative.full_name,
+                'phone_number': relative.phone_number,
+                'email': relative.email,
+                'is_primary_contact': relative.is_primary_contact,
+                'is_guardian': relative.is_guardian,
+                'student': {
+                    'id': str(student_profile.id),
+                    'personal_number': student_profile.personal_number,
+                    'full_name': student_profile.full_name,
+                    'branch_id': str(student_branch.id),
+                    'branch_name': student_branch.name,
+                },
+                'created_at': relative.created_at.isoformat() if relative.created_at else None,
+            }
+            
+            all_branches_data.append(data)
+            
+            if branch_id and data['student']['branch_id'] == branch_id:
+                branch_data = data
+        
+        return Response({
+            "exists_in_branch": branch_data is not None,
+            "exists_globally": True,
+            "branch_data": branch_data,
+            "all_branches_data": all_branches_data,
+        })
 

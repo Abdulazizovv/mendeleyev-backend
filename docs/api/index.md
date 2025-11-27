@@ -26,11 +26,12 @@
 - Sinflar: [classes.md](classes.md)
 - Fanlar: [subjects.md](subjects.md)
 - Binolar va Xonalar: [rooms.md](rooms.md)
+- O'quvchilar: [students.md](students.md) - O'quvchilar va ularning yaqinlari
 - Dashboard (O'qituvchi/O'quvchi): [dashboard.md](dashboard.md)
+- Moliya: [finance.md](finance.md) - Kassalar, Tranzaksiyalar, To'lovlar, Tariflar, Chegirmalar
 - Dars Jadvali: (kelajakda)
 - Davomat: (kelajakda)
 - Baholash: (kelajakda)
-- Moliya: (kelajakda)
 
 ### Qo'shimcha Hujjatlar
 - [Filtering, Search va Ordering](filtering-search-ordering.md) - Qidiruv, filter va ordering qo'llanmasi

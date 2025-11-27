@@ -383,6 +383,14 @@ O'qituvchi va o'quvchilar uchun alohida dashboard API-lar mavjud:
 
 Batafsil ma'lumot uchun [Dashboard API](dashboard.md) hujjatiga qarang.
 
+## Avtomatik Yaratiladigan Modellar
+
+Quyidagi modellar signallar orqali avtomatik yaratiladi:
+
+1. **StudentBalance** - `StudentProfile` yaratilganda avtomatik yaratiladi
+   - Default balance: 0 so'm
+   - Signal: `apps.school.finance.signals.create_student_balance`
+
 ## Eslatmalar
 
 1. **Soft Delete**: Sinf yoki o'quvchi o'chirilganda, ular `deleted_at` maydoni bilan belgilanadi va faol ro'yxatlarda ko'rinmaydi.
@@ -404,4 +412,7 @@ Batafsil ma'lumot uchun [Dashboard API](dashboard.md) hujjatiga qarang.
 5. **Permissions**:
    - Admin endpointlar: `branch_admin`, `super_admin`, `teacher` (CRUD)
    - Dashboard endpointlar: `teacher` yoki `student` (faqat o'z ma'lumotlari)
+
+6. **Avtomatik Yaratiladigan Modellar**:
+   - `StudentBalance` - `StudentProfile` yaratilganda avtomatik yaratiladi (signal orqali)
 

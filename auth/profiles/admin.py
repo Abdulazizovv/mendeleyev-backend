@@ -70,11 +70,14 @@ class StudentProfileAdmin(admin.ModelAdmin):
         'class_display',
         'phone_display',
         'gender_display',
+        'status_display',
         'date_of_birth',
         'relatives_count',
+        'balance_display',
         'created_at'
     )
     list_filter = (
+        'status',
         'gender',
         'user_branch__branch',
         'date_of_birth',
@@ -99,24 +102,35 @@ class StudentProfileAdmin(admin.ModelAdmin):
         'full_name_display',
         'current_class_display',
         'relatives_count_display',
+        'balance_display',
     )
+    # Status fieldni o'zgartirishga ruxsat berish
+    # readonly_fields'da status yo'q, shuning uchun o'zgartirish mumkin
     date_hierarchy = 'created_at'
     list_per_page = 50
     inlines = [StudentRelativeInline]
     
     fieldsets = (
         (_('Asosiy ma\'lumotlar'), {
-            'fields': ('personal_number', 'user_branch', 'full_name_display', 'middle_name', 'gender', 'date_of_birth', 'address')
+            'fields': (
+                'personal_number',
+                'user_branch',
+                'full_name_display',
+                'middle_name',
+                'gender',
+                'status',
+                'date_of_birth',
+                'address'
+            )
         }),
         (_('Hujjatlar'), {
             'fields': ('birth_certificate',)
         }),
         (_('Qo\'shimcha ma\'lumotlar'), {
-            'fields': ('additional_fields', 'current_class_display', 'relatives_count_display')
+            'fields': ('additional_fields',)
         }),
-        (_('Eski fieldlar (backward compatibility)'), {
-            'classes': ('collapse',),
-            'fields': ('grade', 'enrollment_date', 'parent_name')
+        (_('Statistika'), {
+            'fields': ('current_class_display', 'relatives_count_display', 'balance_display')
         }),
         (_('Tizim ma\'lumotlari'), {
             'classes': ('collapse',),
@@ -182,6 +196,40 @@ class StudentProfileAdmin(admin.ModelAdmin):
     @admin.display(description=_('Yaqinlar soni'))
     def relatives_count_display(self, obj):
         return obj.relatives.count()
+    
+    @admin.display(description=_('Holat'))
+    def status_display(self, obj):
+        colors = {
+            'active': '#090',
+            'archived': '#999',
+            'suspended': '#f90',
+            'graduated': '#0066cc',
+            'transferred': '#cc6600',
+        }
+        color = colors.get(obj.status, 'gray')
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">{}</span>',
+            color,
+            obj.get_status_display()
+        )
+    
+    @admin.display(description=_('Balans'))
+    def balance_display(self, obj):
+        try:
+            balance = obj.balance
+            if balance.balance > 0:
+                return format_html(
+                    '<span style="color:#090; font-weight: bold;">{:,} so\'m</span>',
+                    balance.balance
+                )
+            elif balance.balance < 0:
+                return format_html(
+                    '<span style="color:#f00; font-weight: bold;">{:,} so\'m</span>',
+                    balance.balance
+                )
+            return format_html('<span style="color:#999;">0 so\'m</span>')
+        except:
+            return format_html('<span style="color:#999;">-</span>')
 
 
 @admin.register(StudentRelative)

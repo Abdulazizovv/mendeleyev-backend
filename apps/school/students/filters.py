@@ -3,7 +3,7 @@ Filtering, search va ordering uchun filter classes.
 """
 import django_filters
 from django.db import models
-from auth.profiles.models import StudentProfile, Gender
+from auth.profiles.models import StudentProfile, Gender, StudentStatus
 from apps.branch.models import BranchRole
 
 
@@ -19,6 +19,11 @@ class StudentProfileFilter(django_filters.FilterSet):
         field_name='gender',
         choices=Gender.choices,
         help_text='Jinsi bo\'yicha filter (male, female, other, unspecified)'
+    )
+    status = django_filters.ChoiceFilter(
+        field_name='status',
+        choices=StudentStatus.choices,
+        help_text='O\'quvchi holati bo\'yicha filter (active, archived, suspended, graduated, transferred)'
     )
     date_of_birth = django_filters.DateFilter(field_name='date_of_birth', help_text='Tu\'gilgan sana bo\'yicha filter')
     date_of_birth__gte = django_filters.DateFilter(field_name='date_of_birth', lookup_expr='gte', help_text='Tu\'gilgan sana (dan)')
@@ -47,6 +52,7 @@ class StudentProfileFilter(django_filters.FilterSet):
             'search',
             'personal_number',
             'gender',
+            'status',
             'date_of_birth',
             'first_name',
             'last_name',
