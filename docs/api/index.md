@@ -4,6 +4,11 @@
 - Autentifikatsiya: Bearer JWT (SimpleJWT)
 - Hujjatlar: Swagger/Redoc (drf-spectacular) — `/api/schema/`, `/api/docs/`
 
+## Arxitektura Hujjatlari
+
+- [Modellar Arxitekturasi](../models-architecture.md) - Barcha modellar va ularning munosabatlari, best practices
+- [Modellar Diagrammasi](../models-diagram.md) - Visual ER diagramma
+
 ## Versiyalash
 
 - Hozirgi: v1
@@ -21,10 +26,14 @@
 - Sinflar: [classes.md](classes.md)
 - Fanlar: [subjects.md](subjects.md)
 - Binolar va Xonalar: [rooms.md](rooms.md)
+- Dashboard (O'qituvchi/O'quvchi): [dashboard.md](dashboard.md)
 - Dars Jadvali: (kelajakda)
 - Davomat: (kelajakda)
 - Baholash: (kelajakda)
 - Moliya: (kelajakda)
+
+### Qo'shimcha Hujjatlar
+- [Filtering, Search va Ordering](filtering-search-ordering.md) - Qidiruv, filter va ordering qo'llanmasi
 
 ## Xatolik formati
 

@@ -35,6 +35,8 @@ urlpatterns = [
     path('api/v1/school/', include('apps.school.classes.urls')),
     path('api/v1/school/', include('apps.school.subjects.urls')),
     path('api/v1/school/', include('apps.school.rooms.urls')),
+    path('api/v1/school/dashboard/', include('apps.school.dashboard.urls')),
+    path('api/v1/school/students/', include('apps.school.students.urls')),
     # API Schema & Docs
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),

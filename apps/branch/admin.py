@@ -3,7 +3,8 @@ from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
 from .models import Branch, BranchStatuses, BranchTypes, BranchMembership, Role, SalaryType, BranchSettings
-from auth.profiles.models import AdminProfile
+# Lazy import to avoid circular dependency
+# AdminProfile will be imported inside methods if needed
 
 
 class BranchSettingsInline(admin.StackedInline):
@@ -137,18 +138,29 @@ class BranchSettingsAdmin(admin.ModelAdmin):
 	)
 
 
-class AdminProfileInline(admin.StackedInline):
-	"""Inline to display/edit AdminProfile on a membership page.
-
-	AdminProfile links to BranchMembership via OneToOneField.
+def get_admin_profile_inline():
+	"""Factory function to create AdminProfileInline with lazy import.
+	
+	This avoids circular import issues between apps.branch and auth.profiles.
 	"""
+	from auth.profiles.models import AdminProfile
+	
+	class AdminProfileInline(admin.StackedInline):
+		"""Inline to display/edit AdminProfile on a membership page.
 
-	model = AdminProfile
-	extra = 0
-	can_delete = True
-	fk_name = "user_branch"
-	fields = ("is_super_admin", "managed_branches", "title", "notes")
-	filter_horizontal = ("managed_branches",)
+		AdminProfile links to BranchMembership via OneToOneField.
+		"""
+		model = AdminProfile
+		extra = 0
+		can_delete = True
+		fk_name = "user_branch"
+		fields = ("is_super_admin", "managed_branches", "title", "notes")
+		filter_horizontal = ("managed_branches",)
+	
+	return AdminProfileInline
+
+# Create the inline class with lazy import
+AdminProfileInline = get_admin_profile_inline()
 
 
 @admin.register(Role)

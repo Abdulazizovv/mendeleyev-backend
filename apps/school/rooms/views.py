@@ -1,6 +1,7 @@
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.filters import SearchFilter, OrderingFilter
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 from django.shortcuts import get_object_or_404
 
@@ -14,6 +15,7 @@ from .serializers import (
     RoomSerializer,
     RoomCreateSerializer,
 )
+from .filters import BuildingFilter, RoomFilter
 
 
 class BuildingListView(AuditTrailMixin, generics.ListCreateAPIView):
@@ -21,6 +23,10 @@ class BuildingListView(AuditTrailMixin, generics.ListCreateAPIView):
     
     permission_classes = [IsAuthenticated, HasBranchRole]
     required_branch_roles = ("branch_admin", "super_admin", "teacher")
+    filterset_class = BuildingFilter
+    search_fields = ['name', 'address']
+    ordering_fields = ['name', 'created_at']
+    ordering = ['name']
     
     def get_queryset(self):
         """Filial bo'yicha binolarni qaytaradi."""
@@ -28,12 +34,6 @@ class BuildingListView(AuditTrailMixin, generics.ListCreateAPIView):
         branch = get_object_or_404(Branch, id=branch_id)
         
         queryset = Building.objects.filter(branch=branch).prefetch_related('rooms')
-        
-        # Filter by is_active if provided
-        is_active = self.request.query_params.get('is_active')
-        if is_active is not None:
-            is_active = is_active.lower() == 'true'
-            queryset = queryset.filter(is_active=is_active)
         
         return queryset
     
@@ -106,6 +106,10 @@ class RoomListView(AuditTrailMixin, generics.ListCreateAPIView):
     
     permission_classes = [IsAuthenticated, HasBranchRole]
     required_branch_roles = ("branch_admin", "super_admin", "teacher")
+    filterset_class = RoomFilter
+    search_fields = ['name', 'number']
+    ordering_fields = ['name', 'number', 'created_at']
+    ordering = ['name']
     
     def get_queryset(self):
         """Filial bo'yicha xonalarni qaytaradi."""
@@ -113,22 +117,6 @@ class RoomListView(AuditTrailMixin, generics.ListCreateAPIView):
         branch = get_object_or_404(Branch, id=branch_id)
         
         queryset = Room.objects.filter(branch=branch).select_related('building')
-        
-        # Filter by building if provided
-        building_id = self.request.query_params.get('building_id')
-        if building_id:
-            queryset = queryset.filter(building_id=building_id)
-        
-        # Filter by room_type if provided
-        room_type = self.request.query_params.get('room_type')
-        if room_type:
-            queryset = queryset.filter(room_type=room_type)
-        
-        # Filter by is_active if provided
-        is_active = self.request.query_params.get('is_active')
-        if is_active is not None:
-            is_active = is_active.lower() == 'true'
-            queryset = queryset.filter(is_active=is_active)
         
         return queryset
     

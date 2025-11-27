@@ -1,6 +1,7 @@
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.filters import SearchFilter, OrderingFilter
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 from django.shortcuts import get_object_or_404
 
@@ -15,6 +16,7 @@ from .serializers import (
     ClassStudentSerializer,
     ClassStudentCreateSerializer,
 )
+from .filters import ClassFilter, ClassStudentFilter
 
 
 class ClassListView(AuditTrailMixin, generics.ListCreateAPIView):
@@ -22,6 +24,10 @@ class ClassListView(AuditTrailMixin, generics.ListCreateAPIView):
     
     permission_classes = [IsAuthenticated, HasBranchRole]
     required_branch_roles = ("branch_admin", "super_admin", "teacher")
+    filterset_class = ClassFilter
+    search_fields = ['name', 'class_teacher__user__first_name', 'class_teacher__user__last_name']
+    ordering_fields = ['name', 'grade_level', 'created_at', 'academic_year__start_date']
+    ordering = ['-created_at']
     
     def get_queryset(self):
         """Filial va akademik yil bo'yicha sinflarni qaytaradi."""
@@ -32,24 +38,9 @@ class ClassListView(AuditTrailMixin, generics.ListCreateAPIView):
             'branch',
             'academic_year',
             'class_teacher',
-            'class_teacher__user'
+            'class_teacher__user',
+            'room'
         ).prefetch_related('class_students__membership__user')
-        
-        # Filter by academic_year if provided
-        academic_year_id = self.request.query_params.get('academic_year_id')
-        if academic_year_id:
-            queryset = queryset.filter(academic_year_id=academic_year_id)
-        
-        # Filter by grade_level if provided
-        grade_level = self.request.query_params.get('grade_level')
-        if grade_level:
-            queryset = queryset.filter(grade_level=grade_level)
-        
-        # Filter by is_active if provided
-        is_active = self.request.query_params.get('is_active')
-        if is_active is not None:
-            is_active = is_active.lower() == 'true'
-            queryset = queryset.filter(is_active=is_active)
         
         return queryset
     
@@ -65,8 +56,25 @@ class ClassListView(AuditTrailMixin, generics.ListCreateAPIView):
     
     @extend_schema(
         summary="Sinflar ro'yxati",
+        description="""
+        Sinflar ro'yxati (paginatsiya, qidiruv, filter va ordering bilan).
+        
+        Query parameters:
+        - page: Sahifa raqami (default: 1)
+        - page_size: Sahifadagi elementlar soni (default: 20, max: 100)
+        - search: Qidirish (nomi, sinf rahbari)
+        - ordering: Tartiblash (masalan: name, -name, grade_level, -grade_level)
+        - academic_year_id: Akademik yil ID bo'yicha filter
+        - grade_level: Sinf darajasi bo'yicha filter
+        - section: Bo'lim bo'yicha filter
+        - is_active: Faol sinflar bo'yicha filter
+        - class_teacher_id: Sinf rahbari ID bo'yicha filter
+        - room_id: Xona ID bo'yicha filter
+        """,
         parameters=[
             OpenApiParameter('branch_id', type=OpenApiTypes.UUID, location=OpenApiParameter.PATH),
+            OpenApiParameter('search', type=OpenApiTypes.STR, location=OpenApiParameter.QUERY, required=False),
+            OpenApiParameter('ordering', type=OpenApiTypes.STR, location=OpenApiParameter.QUERY, required=False),
             OpenApiParameter('academic_year_id', type=OpenApiTypes.UUID, location=OpenApiParameter.QUERY, required=False),
             OpenApiParameter('grade_level', type=OpenApiTypes.INT, location=OpenApiParameter.QUERY, required=False),
             OpenApiParameter('is_active', type=OpenApiTypes.BOOL, location=OpenApiParameter.QUERY, required=False),
@@ -130,6 +138,14 @@ class ClassStudentListView(AuditTrailMixin, generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated, HasBranchRole]
     required_branch_roles = ("branch_admin", "super_admin", "teacher")
     serializer_class = ClassStudentSerializer
+    filterset_class = ClassStudentFilter
+    search_fields = [
+        'membership__user__first_name',
+        'membership__user__last_name',
+        'membership__user__phone_number',
+    ]
+    ordering_fields = ['created_at', 'membership__user__first_name', 'membership__user__last_name']
+    ordering = ['-created_at']
     
     def get_queryset(self):
         """Sinf o'quvchilarini qaytaradi."""
@@ -143,12 +159,6 @@ class ClassStudentListView(AuditTrailMixin, generics.ListCreateAPIView):
             'membership__user',
             'class_obj'
         )
-        
-        # Filter by is_active if provided
-        is_active = self.request.query_params.get('is_active')
-        if is_active is not None:
-            is_active = is_active.lower() == 'true'
-            queryset = queryset.filter(is_active=is_active)
         
         return queryset
     
@@ -172,8 +182,20 @@ class ClassStudentListView(AuditTrailMixin, generics.ListCreateAPIView):
     
     @extend_schema(
         summary="Sinf o'quvchilari ro'yxati",
+        description="""
+        Sinf o'quvchilari ro'yxati (paginatsiya, qidiruv, filter va ordering bilan).
+        
+        Query parameters:
+        - page: Sahifa raqami (default: 1)
+        - page_size: Sahifadagi elementlar soni (default: 20, max: 100)
+        - search: Qidirish (ism, telefon)
+        - ordering: Tartiblash (masalan: created_at, -created_at)
+        - is_active: Faol o'quvchilar bo'yicha filter
+        """,
         parameters=[
             OpenApiParameter('class_id', type=OpenApiTypes.UUID, location=OpenApiParameter.PATH),
+            OpenApiParameter('search', type=OpenApiTypes.STR, location=OpenApiParameter.QUERY, required=False),
+            OpenApiParameter('ordering', type=OpenApiTypes.STR, location=OpenApiParameter.QUERY, required=False),
             OpenApiParameter('is_active', type=OpenApiTypes.BOOL, location=OpenApiParameter.QUERY, required=False),
         ],
     )

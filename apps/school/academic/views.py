@@ -1,6 +1,7 @@
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.filters import SearchFilter, OrderingFilter
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 from django.shortcuts import get_object_or_404
 
@@ -21,6 +22,9 @@ class AcademicYearListView(AuditTrailMixin, generics.ListCreateAPIView):
     
     permission_classes = [IsAuthenticated, HasBranchRole]
     required_branch_roles = ("branch_admin", "super_admin")
+    search_fields = ['name']
+    ordering_fields = ['start_date', 'end_date', 'created_at', 'name']
+    ordering = ['-start_date']
     
     def get_queryset(self):
         """Filial bo'yicha akademik yillarni qaytaradi."""
@@ -96,6 +100,9 @@ class QuarterListView(AuditTrailMixin, generics.ListCreateAPIView):
     
     permission_classes = [IsAuthenticated, HasBranchRole]
     required_branch_roles = ("branch_admin", "super_admin")
+    search_fields = ['name']
+    ordering_fields = ['start_date', 'end_date', 'created_at', 'number']
+    ordering = ['number']
     
     def get_queryset(self):
         """Akademik yil bo'yicha choraklarni qaytaradi."""

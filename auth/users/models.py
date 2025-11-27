@@ -99,6 +99,15 @@ class User(AbstractBaseUser, PermissionsMixin):
 	def __str__(self) -> str:  # pragma: no cover - trivial
 		return self.phone_number
 
+	def get_full_name(self) -> str:
+		"""Return the full name of the user."""
+		full_name = f"{self.first_name} {self.last_name}".strip()
+		return full_name if full_name else ""
+
+	def get_short_name(self) -> str:
+		"""Return the short name of the user."""
+		return self.first_name if self.first_name else ""
+
 	# Convenience alias matching business language
 	@property
 	def is_superadmin(self) -> bool:

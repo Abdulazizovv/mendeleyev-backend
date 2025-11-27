@@ -374,6 +374,15 @@ const getClassStudents = async (classId) => {
 };
 ```
 
+## Dashboard API
+
+O'qituvchi va o'quvchilar uchun alohida dashboard API-lar mavjud:
+
+- **O'qituvchi**: `/api/v1/school/dashboard/teacher/classes/` — O'qituvchining sinflari
+- **O'quvchi**: `/api/v1/school/dashboard/student/class/` — O'quvchining sinfi
+
+Batafsil ma'lumot uchun [Dashboard API](dashboard.md) hujjatiga qarang.
+
 ## Eslatmalar
 
 1. **Soft Delete**: Sinf yoki o'quvchi o'chirilganda, ular `deleted_at` maydoni bilan belgilanadi va faol ro'yxatlarda ko'rinmaydi.
@@ -391,4 +400,8 @@ const getClassStudents = async (classId) => {
 4. **Computed Fields**:
    - `current_students_count` — faol o'quvchilar soni
    - `can_add_student` — sinfga yana o'quvchi qo'shish mumkinmi?
+
+5. **Permissions**:
+   - Admin endpointlar: `branch_admin`, `super_admin`, `teacher` (CRUD)
+   - Dashboard endpointlar: `teacher` yoki `student` (faqat o'z ma'lumotlari)
 

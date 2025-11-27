@@ -1,6 +1,7 @@
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.filters import SearchFilter, OrderingFilter
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 from django.shortcuts import get_object_or_404
 
@@ -15,6 +16,7 @@ from .serializers import (
     ClassSubjectSerializer,
     ClassSubjectCreateSerializer,
 )
+from .filters import SubjectFilter, ClassSubjectFilter
 
 
 class SubjectListView(AuditTrailMixin, generics.ListCreateAPIView):
@@ -22,6 +24,10 @@ class SubjectListView(AuditTrailMixin, generics.ListCreateAPIView):
     
     permission_classes = [IsAuthenticated, HasBranchRole]
     required_branch_roles = ("branch_admin", "super_admin", "teacher")
+    filterset_class = SubjectFilter
+    search_fields = ['name', 'code']
+    ordering_fields = ['name', 'code', 'created_at']
+    ordering = ['name']
     
     def get_queryset(self):
         """Filial bo'yicha fanlarni qaytaradi."""
@@ -29,12 +35,6 @@ class SubjectListView(AuditTrailMixin, generics.ListCreateAPIView):
         branch = get_object_or_404(Branch, id=branch_id)
         
         queryset = Subject.objects.filter(branch=branch)
-        
-        # Filter by is_active if provided
-        is_active = self.request.query_params.get('is_active')
-        if is_active is not None:
-            is_active = is_active.lower() == 'true'
-            queryset = queryset.filter(is_active=is_active)
         
         return queryset
     
@@ -108,6 +108,14 @@ class ClassSubjectListView(AuditTrailMixin, generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated, HasBranchRole]
     required_branch_roles = ("branch_admin", "super_admin", "teacher")
     serializer_class = ClassSubjectSerializer
+    filterset_class = ClassSubjectFilter
+    search_fields = [
+        'subject__name',
+        'teacher__user__first_name',
+        'teacher__user__last_name',
+    ]
+    ordering_fields = ['created_at', 'subject__name']
+    ordering = ['subject__name']
     
     def get_queryset(self):
         """Sinf fanlarini qaytaradi."""
@@ -123,12 +131,6 @@ class ClassSubjectListView(AuditTrailMixin, generics.ListCreateAPIView):
             'teacher__user',
             'quarter'
         )
-        
-        # Filter by is_active if provided
-        is_active = self.request.query_params.get('is_active')
-        if is_active is not None:
-            is_active = is_active.lower() == 'true'
-            queryset = queryset.filter(is_active=is_active)
         
         return queryset
     

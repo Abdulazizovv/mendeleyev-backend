@@ -11,7 +11,6 @@ from auth.profiles.models import (
 	UserBranchProfile,
 	AdminProfile,
 )
-from apps.branch.models import BranchMembership, BranchRole
 
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
@@ -24,12 +23,17 @@ def create_user_profile(sender, instance, created, **kwargs):
 # Legacy UserBranch receiver removed - use BranchMembership receiver below
 
 
-@receiver(post_save, sender=BranchMembership)
-def create_role_profiles(sender, instance: BranchMembership, created, **kwargs):
+@receiver(post_save, sender='branch.BranchMembership')
+def create_role_profiles(sender, instance, created, **kwargs):
 	"""Mirror receiver for canonical BranchMembership to keep behavior identical.
 
 	Runs on every save to handle role transitions and idempotent backfill.
+	
+	Note: Using string reference 'branch.BranchMembership' to avoid circular imports.
 	"""
+	# Lazy import to avoid circular dependency
+	from apps.branch.models import BranchRole
+	
 	UserBranchProfile.objects.get_or_create(user_branch=instance)
 	role = instance.role
 	if role == BranchRole.TEACHER:

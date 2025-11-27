@@ -370,6 +370,15 @@ const updateClassSubjectTeacher = async (classId, classSubjectId, newTeacherId) 
 };
 ```
 
+## Dashboard API
+
+O'qituvchi va o'quvchilar uchun alohida dashboard API-lar mavjud:
+
+- **O'qituvchi**: `/api/v1/school/dashboard/teacher/subjects/` — O'qituvchining fanlari
+- **O'quvchi**: `/api/v1/school/dashboard/student/subjects/` — O'quvchining fanlari
+
+Batafsil ma'lumot uchun [Dashboard API](dashboard.md) hujjatiga qarang.
+
 ## Eslatmalar
 
 1. **Soft Delete**: Fan yoki sinf-fan biriktirish o'chirilganda, ular `deleted_at` maydoni bilan belgilanadi va faol ro'yxatlarda ko'rinmaydi.
@@ -387,4 +396,8 @@ const updateClassSubjectTeacher = async (classId, classSubjectId, newTeacherId) 
    - Fan va sinf bir xil filialga tegishli bo'lishi kerak
    - O'qituvchi va sinf bir xil filialga tegishli bo'lishi kerak
    - Chorak va sinf bir xil akademik yilga tegishli bo'lishi kerak
+
+5. **Permissions**:
+   - Admin endpointlar: `branch_admin`, `super_admin`, `teacher` (CRUD)
+   - Dashboard endpointlar: `teacher` yoki `student` (faqat o'z ma'lumotlari)
 
