@@ -69,6 +69,18 @@ class AcademicYearCreateSerializer(serializers.ModelSerializer):
             'end_date',
             'is_active',
         ]
+    
+    def validate(self, data):
+        """Validate dates."""
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        
+        if start_date and end_date and start_date >= end_date:
+            raise serializers.ValidationError({
+                'end_date': 'Tugash sanasi boshlanish sanasidan keyin bo\'lishi kerak.'
+            })
+        
+        return data
 
 
 class QuarterCreateSerializer(serializers.ModelSerializer):
@@ -86,16 +98,19 @@ class QuarterCreateSerializer(serializers.ModelSerializer):
         ]
     
     def validate(self, data):
-        """Validate dates and academic year."""
+        """Validate dates, academic year, and quarter number."""
         start_date = data.get('start_date')
         end_date = data.get('end_date')
         academic_year = data.get('academic_year')
+        number = data.get('number')
         
+        # Date validation
         if start_date and end_date and start_date >= end_date:
             raise serializers.ValidationError({
                 'end_date': 'Tugash sanasi boshlanish sanasidan keyin bo\'lishi kerak.'
             })
         
+        # Academic year date validation
         if academic_year and start_date:
             if start_date < academic_year.start_date or start_date > academic_year.end_date:
                 raise serializers.ValidationError({
@@ -106,6 +121,13 @@ class QuarterCreateSerializer(serializers.ModelSerializer):
             if end_date < academic_year.start_date or end_date > academic_year.end_date:
                 raise serializers.ValidationError({
                     'end_date': 'Chorak tugash sanasi akademik yil ichida bo\'lishi kerak.'
+                })
+        
+        # Quarter number validation (1-4)
+        if number is not None:
+            if number < 1 or number > 4:
+                raise serializers.ValidationError({
+                    'number': 'Chorak raqami 1 va 4 orasida bo\'lishi kerak.'
                 })
         
         return data

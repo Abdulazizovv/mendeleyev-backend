@@ -1,5 +1,52 @@
 # Changelog
 
+## 2024-11-27 - O'quvchi Yaratish API Yaxshilandi
+
+### Yangi Xususiyatlar
+
+1. **Abonement Tanlash**
+   - O'quvchi yaratishda `subscription_plan_id` orqali abonement tanlash mumkin
+   - Abonement tanlansa, avtomatik `Payment` va `Transaction` yaratiladi
+   - Agar kassa bo'lmasa, avtomatik "Asosiy kassa" yaratiladi
+
+2. **Yaqinlar Avtomatik Yaratish**
+   - Yaqinlar belgilanganda har bir yaqin uchun:
+     - `User` yaratiladi/yangilanadi
+     - `BranchMembership` (role=PARENT) yaratiladi
+     - `StudentRelative` yaratiladi
+   - Agar yaqin allaqachon boshqa rolda bo'lsa, xatolik qaytariladi
+
+3. **Hujjat Ma'lumotlari**
+   - `birth_certificate` - Tu'gilganlik guvohnoma rasmi (file)
+   - `passport_number` - Pasport yoki ID karta raqami
+   - `nationality` - Millati
+   - `additional_fields` - Qo'shimcha hujjat ma'lumotlari (JSON)
+
+4. **Hujjatlar Yangilash Endpointi**
+   - `PATCH /api/v1/school/students/{student_id}/documents/` - O'quvchi hujjatlarini yangilash
+   - `StudentDocumentsUpdateSerializer` yaratildi
+
+### Tuzatilgan Muammolar
+
+1. **IntegrityError Tuzatildi**
+   - O'quvchi yaratishda `BranchMembership` unique constraint xatosi tuzatildi
+   - Endi barcha roldagi membershiplar tekshiriladi
+   - Agar user o'sha branchda boshqa rolda bo'lsa, aniq xatolik xabari qaytariladi
+
+### API O'zgarishlari
+
+**StudentCreateSerializer:**
+- `subscription_plan_id` (UUID, optional) - Abonement tarifi ID
+- `relatives` (List[Dict], optional) - Yaqinlar ro'yxati
+- `birth_certificate` (File, optional) - Tu'gilganlik guvohnoma rasmi
+- `passport_number` (String, optional) - Pasport raqami
+- `nationality` (String, optional) - Millati
+
+**Yangi Endpoint:**
+- `PATCH /api/v1/school/students/{student_id}/documents/` - Hujjatlar yangilash
+
+---
+
 ## Phase 4 (RBAC Admin Profiles)
 
 - Added AdminProfile model for admin-class memberships (branch_admin, super_admin).

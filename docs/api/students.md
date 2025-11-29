@@ -242,12 +242,15 @@ POST /api/v1/school/students/create/
   "status": "active",
   "date_of_birth": "2010-05-15",
   "address": "Toshkent shahri, Chilonzor tumani",
-  "birth_certificate": null,
+  "birth_certificate": "<file>",
+  "passport_number": "AB1234567",
+  "nationality": "UZ",
   "additional_fields": {
-    "passport_number": "AB1234567",
-    "nationality": "UZ"
+    "passport_issued_date": "2020-01-15",
+    "passport_expiry_date": "2030-01-15"
   },
   "class_id": "uuid",
+  "subscription_plan_id": "uuid",
   "relatives": [
     {
       "relationship_type": "father",
@@ -285,7 +288,17 @@ POST /api/v1/school/students/create/
 **Eslatmalar:**
 - **Majburiy maydonlar**: `phone_number`, `first_name`, `branch_id`
 - **Ixtiyoriy maydonlar**: Qolgan barcha maydonlar ixtiyoriy
+- **Hujjatlar**: 
+  - `birth_certificate` - Tu'gilganlik guvohnoma rasmi (file)
+  - `passport_number` - Pasport yoki ID karta raqami
+  - `nationality` - Millati (masalan: UZ, RU)
+  - `additional_fields` - Qo'shimcha hujjat ma'lumotlari (JSON)
+- **Abonement**: `subscription_plan_id` - Abonement tarifi ID (ixtiyoriy)
+  - Agar berilsa, avtomatik `Payment` va `Transaction` yaratiladi
+  - Agar kassa bo'lmasa, avtomatik "Asosiy kassa" yaratiladi
 - **Yaqinlar**: `relatives` array - bir vaqtning o'zida bir nechta yaqin qo'shish mumkin
+  - Har bir yaqin uchun avtomatik `User` va `BranchMembership` (role=PARENT) yaratiladi
+  - Agar yaqin allaqachon boshqa rolda bo'lsa, xatolik qaytariladi
 - **Atomic operatsiyalar**: Barcha operatsiyalar bir xatoda bajariladi (agar xato bo'lsa, rollback)
 - **Sinfga biriktirish**: `class_id` orqali sinfga biriktirish mumkin
 
@@ -499,6 +512,50 @@ POST /api/v1/school/students/{student_id}/relatives/
 
 ---
 
+### O'quvchi Hujjatlarini Yangilash
+
+```
+PATCH /api/v1/school/students/{student_id}/documents/
+```
+
+**Permissions:** IsAuthenticated (o'quvchi yaratish ruxsatiga ega bo'lganlar)
+
+**Request Body:**
+```json
+{
+  "birth_certificate": "<file>",
+  "passport_number": "AB1234567",
+  "nationality": "UZ",
+  "additional_fields": {
+    "passport_issued_date": "2020-01-15",
+    "passport_expiry_date": "2030-01-15"
+  }
+}
+```
+
+**Eslatmalar:**
+- Barcha maydonlar ixtiyoriy
+- `passport_number` va `nationality` `additional_fields` ga saqlanadi
+- `additional_fields` mavjud ma'lumotlar bilan birlashtiriladi (update, merge)
+
+**Response:** `200 OK`
+```json
+{
+  "id": "uuid",
+  "personal_number": "ST-2024-0001",
+  "birth_certificate": "/media/students/birth_certificates/...",
+  "additional_fields": {
+    "passport_number": "AB1234567",
+    "nationality": "UZ",
+    "passport_issued_date": "2020-01-15",
+    "passport_expiry_date": "2030-01-15"
+  },
+  ...
+}
+```
+
+---
+
 ## Misol So'rovlar
 
 ### 1. O'quvchilarni qidirish
@@ -598,6 +655,18 @@ GET /api/v1/school/students/?branch_id=uuid&page=2&page_size=10
    - **Ixtiyoriy Maydonlar**: Faqat `phone_number`, `first_name`, `branch_id` majburiy
    - **To'liq Ma'lumotlar**: Adminlar barcha ma'lumotlarni bir vaqtda to'ldirish imkoniyatiga ega
    - **Sinfga Biriktirish**: O'quvchini yaratishda sinfga biriktirish mumkin
+   - **Abonement Tanlash**: `subscription_plan_id` orqali abonement tanlash mumkin
+     - Abonement tanlansa, avtomatik `Payment` va `Transaction` yaratiladi
+     - Agar kassa bo'lmasa, avtomatik "Asosiy kassa" yaratiladi
+   - **Yaqinlar Avtomatik Yaratish**: Yaqinlar belgilanganda:
+     - Har bir yaqin uchun `User` yaratiladi/yangilanadi
+     - Har bir yaqin uchun `BranchMembership` (role=PARENT) yaratiladi
+     - `StudentRelative` yaratiladi
+   - **Hujjat Ma'lumotlari**: 
+     - `birth_certificate` - Tu'gilganlik guvohnoma rasmi
+     - `passport_number` - Pasport yoki ID karta raqami
+     - `nationality` - Millati
+     - `additional_fields` - Qo'shimcha hujjat ma'lumotlari
 
 2. **Moliya Integratsiyasi:**
    - **List View**: Faqat balans summasi ko'rsatiladi (`balance: { balance: 500000 }`)

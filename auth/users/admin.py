@@ -77,6 +77,48 @@ class UserAdmin(DjangoUserAdmin):
 			if not obj.has_usable_password():
 				obj.phone_verified = False
 		obj.save()
+	
+	def delete_model(self, request, obj):
+		"""
+		User o'chirish - barcha bog'liq ma'lumotlarni professional tarzda o'chirish.
+		
+		Bu metod:
+		1. Eski users_userbranch jadvalini tekshiradi va tozalaydi (agar mavjud bo'lsa)
+		2. BranchMembership'lar CASCADE orqali avtomatik o'chiladi
+		3. User'ni xavfsiz tarzda o'chiradi
+		"""
+		from django.db import connection, transaction
+		from django.core.exceptions import ValidationError
+		
+		# Transaction ichida barcha operatsiyalarni bajarish
+		with transaction.atomic():
+			# Eski UserBranch jadvalini tekshirish va tozalash
+			with connection.cursor() as cursor:
+				try:
+					# Jadval mavjudligini tekshirish
+					cursor.execute("""
+						SELECT EXISTS (
+							SELECT FROM information_schema.tables 
+							WHERE table_schema = 'public' 
+							AND table_name = 'users_userbranch'
+						);
+					""")
+					table_exists = cursor.fetchone()[0]
+					
+					if table_exists:
+						# Eski jadval mavjud bo'lsa, User bilan bog'liq yozuvlarni o'chirish
+						cursor.execute("""
+							DELETE FROM users_userbranch 
+							WHERE user_id = %s;
+						""", [str(obj.id)])
+				except Exception:
+					# Agar xatolik bo'lsa, log qilish mumkin, lekin o'chirishni davom ettiramiz
+					# Production'da bu yerda logging qo'shish mumkin
+					pass
+			
+			# Endi Django ORM orqali User'ni o'chirish
+			# BranchMembership CASCADE orqali avtomatik o'chiladi
+			super().delete_model(request, obj)
 
 	class MembershipInline(admin.TabularInline):
 		model = BranchMembership

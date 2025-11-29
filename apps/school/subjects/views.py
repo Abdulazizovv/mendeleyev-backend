@@ -2,6 +2,7 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.filters import SearchFilter, OrderingFilter
+from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 from django.shortcuts import get_object_or_404
 
@@ -24,6 +25,7 @@ class SubjectListView(AuditTrailMixin, generics.ListCreateAPIView):
     
     permission_classes = [IsAuthenticated, HasBranchRole]
     required_branch_roles = ("branch_admin", "super_admin", "teacher")
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = SubjectFilter
     search_fields = ['name', 'code']
     ordering_fields = ['name', 'code', 'created_at']
@@ -107,6 +109,7 @@ class ClassSubjectListView(AuditTrailMixin, generics.ListCreateAPIView):
     
     permission_classes = [IsAuthenticated, HasBranchRole]
     required_branch_roles = ("branch_admin", "super_admin", "teacher")
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     serializer_class = ClassSubjectSerializer
     filterset_class = ClassSubjectFilter
     search_fields = [

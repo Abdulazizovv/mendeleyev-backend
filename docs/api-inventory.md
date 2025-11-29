@@ -138,6 +138,58 @@ Bu hujjat barcha mavjud API endpointlarini ro'yxatga oladi va ularning holatini 
    - View: `BalanceUpdateView`
    - Test: ❓ Test yo'q (YANGI)
 
+## Students API (`/api/v1/school/students/`)
+
+### ✅ Ishlayapti
+
+1. **GET** `/api/v1/school/students/` - O'quvchilar ro'yxati
+   - View: `StudentListView`
+   - Test: ❓ Test yo'q
+   - Features: Pagination, filtering, search, ordering
+
+2. **POST** `/api/v1/school/students/create/` - O'quvchi yaratish
+   - View: `StudentCreateView`
+   - Test: ❓ Test yo'q
+   - Features: 
+     - Abonement tanlash (`subscription_plan_id`)
+     - Yaqinlarni belgilash (avtomatik user/parent membership yaratish)
+     - Hujjat ma'lumotlarini kiritish (passport, birth_certificate, nationality)
+     - Sinfga biriktirish
+
+3. **GET** `/api/v1/school/students/{student_id}/` - O'quvchi ma'lumotlari
+   - View: `StudentDetailView`
+   - Test: ❓ Test yo'q
+   - Features: To'liq moliyaviy ma'lumotlar (balance, transactions, payments)
+
+4. **PATCH** `/api/v1/school/students/{student_id}/documents/` - Hujjatlar yangilash
+   - View: `StudentDocumentsUpdateView`
+   - Test: ❓ Test yo'q
+   - Features: Birth certificate, passport, nationality yangilash
+
+5. **GET** `/api/v1/school/students/{student_id}/relatives/` - O'quvchi yaqinlari
+   - View: `StudentRelativeListView`
+   - Test: ❓ Test yo'q
+
+6. **POST** `/api/v1/school/students/{student_id}/relatives/` - Yaqin qo'shish
+   - View: `StudentRelativeListView`
+   - Test: ❓ Test yo'q
+
+7. **GET** `/api/v1/school/students/check-user/` - User mavjudligini tekshirish
+   - View: `UserCheckView`
+   - Test: ❓ Test yo'q
+
+8. **POST** `/api/v1/school/students/check-user/` - User mavjudligini tekshirish
+   - View: `UserCheckView`
+   - Test: ❓ Test yo'q
+
+9. **GET** `/api/v1/school/students/check-relative/` - Yaqin mavjudligini tekshirish
+   - View: `StudentRelativeCheckView`
+   - Test: ❓ Test yo'q
+
+10. **POST** `/api/v1/school/students/check-relative/` - Yaqin mavjudligini tekshirish
+    - View: `StudentRelativeCheckView`
+    - Test: ❓ Test yo'q
+
 ## Bot API
 
 1. **POST** `/api/telegram/webhook/<token>/` - Telegram webhook
@@ -204,9 +256,9 @@ Bu hujjat barcha mavjud API endpointlarini ro'yxatga oladi va ularning holatini 
 
 ### 📝 API holati
 
-**Jami endpointlar**: 30+
+**Jami endpointlar**: 40+
 - ✅ **Ishlayapti va test qilingan**: 20+
-- ⚠️ **Ishlayapti, lekin test yo'q**: 9
+- ⚠️ **Ishlayapti, lekin test yo'q**: 20+ (Students API, Profile API, va boshqalar)
 - ❌ **O'chirilgan**: 2 (RequestOTPView, VerifyOTPView)
 
 ### 🔧 Keyingi qadamlarni tavsiya

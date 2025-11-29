@@ -17,6 +17,7 @@ from .serializers import (
     StudentProfileSerializer,
     StudentRelativeCreateSerializer,
     StudentRelativeSerializer,
+    StudentDocumentsUpdateSerializer,
     UserCheckSerializer,
 )
 from auth.users.models import User
@@ -257,6 +258,67 @@ class StudentDetailView(APIView):
         return Response(serializer.data)
 
 
+class StudentDocumentsUpdateView(APIView):
+    """O'quvchi hujjatlarini yangilash endpointi."""
+    permission_classes = [IsAuthenticated]
+    
+    @extend_schema(
+        request=StudentDocumentsUpdateSerializer,
+        responses={200: StudentProfileSerializer},
+        summary="O'quvchi hujjatlarini yangilash",
+        description="""
+        O'quvchi hujjatlarini yangilash.
+        
+        **Qo'llab-quvvatlanadigan hujjatlar:**
+        - Tu'gilganlik guvohnoma rasmi (birth_certificate)
+        - Pasport yoki ID karta raqami (passport_number)
+        - Millati (nationality)
+        - Qo'shimcha ma'lumotlar (additional_fields)
+        
+        **Misol so'rov:**
+        ```json
+        {
+          "birth_certificate": "<file>",
+          "passport_number": "AB1234567",
+          "nationality": "UZ",
+          "additional_fields": {
+            "passport_issued_date": "2020-01-15",
+            "passport_expiry_date": "2030-01-15"
+          }
+        }
+        ```
+        """
+    )
+    @transaction.atomic
+    def patch(self, request, student_id):
+        try:
+            student_profile = StudentProfile.objects.select_related(
+                'user_branch',
+                'user_branch__user',
+                'user_branch__branch'
+            ).get(
+                id=student_id,
+                deleted_at__isnull=True
+            )
+        except StudentProfile.DoesNotExist:
+            return Response(
+                {"detail": "O'quvchi topilmadi."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        serializer = StudentDocumentsUpdateSerializer(
+            student_profile,
+            data=request.data,
+            partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        
+        # Yangilangan ma'lumotlarni qaytarish
+        response_serializer = StudentProfileSerializer(student_profile)
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
+
+
 class StudentRelativeListView(APIView):
     """O'quvchi yaqinlari ro'yxati."""
     permission_classes = [IsAuthenticated]
@@ -268,7 +330,11 @@ class StudentRelativeListView(APIView):
     )
     def get(self, request, student_id):
         try:
-            student_profile = StudentProfile.objects.get(
+            student_profile = StudentProfile.objects.select_related(
+                'user_branch',
+                'user_branch__user',
+                'user_branch__branch'
+            ).get(
                 id=student_id,
                 deleted_at__isnull=True
             )
