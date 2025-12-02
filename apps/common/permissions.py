@@ -41,8 +41,44 @@ class HasBranchRole(BasePermission):
     kwarg_name = "branch_id"
 
     def _get_branch_id(self, request, view) -> Optional[str]:
-        """Resolve branch from JWT 'br' claim first, then header, param, kwarg."""
-        # JWT claim (if SimpleJWT payload attached on request.user or request.auth)
+        """Resolve branch context preferring explicit request scope over token claims.
+
+        Order: kwarg 'branch_id' -> header X-Branch-Id -> query param branch_id -> JWT 'br' claim.
+        """
+        # URL kwarg has the highest priority (most explicit)
+        kw = getattr(view, "kwargs", {}) or {}
+        kw_val = kw.get(self.kwarg_name)
+        if kw_val:
+            uid = _parse_uuid(kw_val)
+            if uid:
+                return uid
+        # Header next
+        header_val = request.META.get(self.header_name)
+        if header_val:
+            uid = _parse_uuid(header_val)
+            if uid:
+                return uid
+        # Query param next
+        param_val = getattr(request, "query_params", {}).get(self.param_name) if hasattr(request, "query_params") else None
+        if param_val:
+            uid = _parse_uuid(param_val)
+            if uid:
+                return uid
+        # Infer from other route params (e.g., class_id -> Class.branch_id)
+        try:
+            kw_all = getattr(view, "kwargs", {}) or {}
+            class_id = kw_all.get("class_id")
+            if class_id:
+                # Local import to avoid circular
+                from apps.school.classes.models import Class  # type: ignore
+                uid = _parse_uuid(class_id)
+                if uid:
+                    cls = Class.objects.filter(id=uid).only("branch_id").first()
+                    if cls:
+                        return str(cls.branch_id)
+        except Exception:
+            pass
+        # JWT claim as fallback (least explicit but convenient default)
         try:
             if hasattr(request, "auth") and isinstance(request.auth, dict):
                 br_claim = request.auth.get("br") or request.auth.get("branch_id")
@@ -51,25 +87,6 @@ class HasBranchRole(BasePermission):
                     return uid
         except Exception:
             pass
-        # Header takes precedence afterwards
-        header_val = request.META.get(self.header_name)
-        if header_val:
-            uid = _parse_uuid(header_val)
-            if uid:
-                return uid
-        # Query param next
-        param_val = request.query_params.get(self.param_name)
-        if param_val:
-            uid = _parse_uuid(param_val)
-            if uid:
-                return uid
-        # Kwarg last
-        kw = getattr(view, "kwargs", {}) or {}
-        kw_val = kw.get(self.kwarg_name)
-        if kw_val:
-            uid = _parse_uuid(kw_val)
-            if uid:
-                return uid
         return None
 
     def has_permission(self, request, view) -> bool:

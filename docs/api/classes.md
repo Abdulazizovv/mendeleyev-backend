@@ -47,6 +47,17 @@ Authorization: Bearer <access_token>
 - `super_admin` — Barcha operatsiyalar
 - `teacher` — Ko'rish va o'z sinflarini boshqarish
 
+### Branch Konteksti (muvofiqlashtirish)
+
+Backend branch kontekstini quyidagi tartibda aniqlaydi:
+
+1) URL yo'lidagi `branch_id` (agar mavjud bo'lsa)
+2) Header: `X-Branch-Id`
+3) Query param: `branch_id`
+4) JWT claim: `br` (fallback)
+
+Sinflar o'quvchilari kabi ba'zi endpointlarda URL faqat `class_id` beradi. Bunday holatda backend avtomatik ravishda `class_id` orqali sinfning `branch_id` sini aniqlab, ruxsatni tekshiradi. Shuning uchun odatda `X-Branch-Id` yuborish shart emas.
+
 ## Endpoints
 
 ### 1. Sinflar Ro'yxati
@@ -56,33 +67,42 @@ Authorization: Bearer <access_token>
 Filialdagi barcha sinflarni qaytaradi.
 
 **Query Parameters:**
+- `page` (Number, optional) — Sahifa raqami (default: 1)
+- `page_size` (Number, optional) — Sahifa hajmi (default: 20, max: 100)
+- `search` (String, optional) — Qidiruv (nomi, sinf rahbari ismi, familiyasi)
+- `ordering` (String, optional) — Tartiblash (masalan: `name`, `-name`, `grade_level`, `-grade_level`)
 - `academic_year_id` (UUID, optional) — Akademik yil bo'yicha filter
 - `grade_level` (Integer, optional) — Sinf darajasi bo'yicha filter
 - `is_active` (Boolean, optional) — Faol sinflar bo'yicha filter
 
-**Response 200:**
+**Response 200:** (Paginatsiya qilingan natija)
 ```json
-[
-  {
-    "id": "123e4567-e89b-12d3-a456-426614174000",
-    "branch": "456e7890-e89b-12d3-a456-426614174001",
-    "branch_name": "Alpha School",
-    "academic_year": "789e0123-e89b-12d3-a456-426614174002",
-    "academic_year_name": "2024-2025",
-    "name": "1-A",
-    "grade_level": 1,
-    "section": "A",
-    "class_teacher": "012e3456-e89b-12d3-a456-426614174003",
-    "class_teacher_name": "John Doe",
-    "max_students": 30,
-    "current_students_count": 25,
-    "can_add_student": true,
-    "room": "345e6789-e89b-12d3-a456-426614174004",
-    "is_active": true,
-    "created_at": "2024-09-01T10:00:00Z",
-    "updated_at": "2024-09-01T10:00:00Z"
-  }
-]
+{
+  "count": 42,
+  "next": "/api/v1/school/branches/{branch_id}/classes/?page=2&page_size=20",
+  "previous": null,
+  "results": [
+    {
+      "id": "123e4567-e89b-12d3-a456-426614174000",
+      "branch": "456e7890-e89b-12d3-a456-426614174001",
+      "branch_name": "Alpha School",
+      "academic_year": "789e0123-e89b-12d3-a456-426614174002",
+      "academic_year_name": "2024-2025",
+      "name": "1-A",
+      "grade_level": 1,
+      "section": "A",
+      "class_teacher": "012e3456-e89b-12d3-a456-426614174003",
+      "class_teacher_name": "John Doe",
+      "max_students": 30,
+      "current_students_count": 25,
+      "can_add_student": true,
+      "room": "345e6789-e89b-12d3-a456-426614174004",
+      "is_active": true,
+      "created_at": "2024-09-01T10:00:00Z",
+      "updated_at": "2024-09-01T10:00:00Z"
+    }
+  ]
+}
 ```
 
 ### 2. Sinf Yaratish
@@ -94,21 +114,21 @@ Yangi sinf yaratadi.
 **Request Body:**
 ```json
 {
+  "branch": "456e7890-e89b-12d3-a456-426614174001",
   "academic_year": "789e0123-e89b-12d3-a456-426614174002",
   "name": "1-A",
   "grade_level": 1,
   "section": "A",
   "class_teacher": "012e3456-e89b-12d3-a456-426614174003",
   "max_students": 30,
-  "room": "345e6789-e89b-12d3-a456-426614174004",
   "is_active": true
 }
 ```
 
 **Validation Rules:**
+- `branch` so'rov bodysida talab qilinadi va URL dagi `{branch_id}` bilan mos bo'lishi kerak
 - `academic_year` tanlangan filialga tegishli bo'lishi kerak
 - `class_teacher` tanlangan filialga tegishli va `role=teacher` bo'lishi kerak
-- `room` tanlangan filialga tegishli bo'lishi kerak (agar belgilansa)
 - `grade_level` 1-11 orasida bo'lishi kerak
 - `max_students` 1 dan katta bo'lishi kerak
 
@@ -128,7 +148,6 @@ Yangi sinf yaratadi.
   "max_students": 30,
   "current_students_count": 0,
   "can_add_student": true,
-  "room": "345e6789-e89b-12d3-a456-426614174004",
   "is_active": true,
   "created_at": "2024-09-01T10:00:00Z",
   "updated_at": "2024-09-01T10:00:00Z"
@@ -172,9 +191,17 @@ Sinf ma'lumotlarini yangilaydi.
 
 **DELETE** `/api/v1/school/branches/{branch_id}/classes/{id}/`
 
-Sinfni soft-delete qiladi (o'quvchilar saqlanadi).
+Sinfni soft-delete qiladi. O'chirilganda bog'liq obyektlar ham soft-delete qilinadi:
+
+- Ushbu sinfdagi barcha `ClassStudent` yozuvlari
+- Ushbu sinfga biriktirilgan barcha `ClassSubject` yozuvlari
 
 **Response 204:** No Content
+
+**Soft Delete Xulq-atvori:**
+- O'chirilgan sinflar ro'yxatlarda va detallarda ko'rinmaydi
+- Sinf soft-delete qilinganda, bog'liq `ClassStudent` va `ClassSubject` yozuvlari ham ko'rinmaydi
+- Tiklash (restore) umumiy endpoint yo'q; admin paneldan qayta tiklash mumkin
 
 ### 6. Sinf O'quvchilari Ro'yxati
 
@@ -183,26 +210,35 @@ Sinfni soft-delete qiladi (o'quvchilar saqlanadi).
 Sinfdagi barcha o'quvchilarni qaytaradi.
 
 **Query Parameters:**
+- `page` (Number, optional) — Sahifa raqami (default: 1)
+- `page_size` (Number, optional) — Sahifa hajmi (default: 20, max: 100)
+- `search` (String, optional) — Qidiruv (ism, telefon)
+- `ordering` (String, optional) — Tartiblash (masalan: `created_at`, `-created_at`)
 - `is_active` (Boolean, optional) — Faol o'quvchilar bo'yicha filter
 
-**Response 200:**
+**Response 200:** (Paginatsiya qilingan natija)
 ```json
-[
-  {
-    "id": "234e5678-e89b-12d3-a456-426614174005",
-    "class_obj": "123e4567-e89b-12d3-a456-426614174000",
-    "membership": "567e8901-e89b-12d3-a456-426614174006",
-    "membership_id": "567e8901-e89b-12d3-a456-426614174006",
-    "student_id": "890e1234-e89b-12d3-a456-426614174007",
-    "student_name": "Jane Smith",
-    "student_phone": "+998901234568",
-    "enrollment_date": "2024-09-01",
-    "is_active": true,
-    "notes": "",
-    "created_at": "2024-09-01T10:00:00Z",
-    "updated_at": "2024-09-01T10:00:00Z"
-  }
-]
+{
+  "count": 25,
+  "next": "/api/v1/school/classes/{class_id}/students/?page=2&page_size=20",
+  "previous": null,
+  "results": [
+    {
+      "id": "234e5678-e89b-12d3-a456-426614174005",
+      "class_obj": "123e4567-e89b-12d3-a456-426614174000",
+      "membership": "567e8901-e89b-12d3-a456-426614174006",
+      "membership_id": "567e8901-e89b-12d3-a456-426614174006",
+      "student_id": "890e1234-e89b-12d3-a456-426614174007",
+      "student_name": "Jane Smith",
+      "student_phone": "+998901234568",
+      "enrollment_date": "2024-09-01",
+      "is_active": true,
+      "notes": "",
+      "created_at": "2024-09-01T10:00:00Z",
+      "updated_at": "2024-09-01T10:00:00Z"
+    }
+  ]
+}
 ```
 
 ### 7. O'quvchi Qo'shish

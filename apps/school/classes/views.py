@@ -36,7 +36,7 @@ class ClassListView(AuditTrailMixin, generics.ListCreateAPIView):
         branch_id = self.kwargs.get('branch_id')
         branch = get_object_or_404(Branch, id=branch_id)
         
-        queryset = Class.objects.filter(branch=branch).select_related(
+        queryset = Class.objects.filter(branch=branch, deleted_at__isnull=True).select_related(
             'branch',
             'academic_year',
             'class_teacher',
@@ -105,7 +105,7 @@ class ClassDetailView(AuditTrailMixin, generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         branch_id = self.kwargs.get('branch_id')
         branch = get_object_or_404(Branch, id=branch_id)
-        return Class.objects.filter(branch=branch).select_related(
+        return Class.objects.filter(branch=branch, deleted_at__isnull=True).select_related(
             'branch',
             'academic_year',
             'class_teacher',
@@ -153,10 +153,11 @@ class ClassStudentListView(AuditTrailMixin, generics.ListCreateAPIView):
     def get_queryset(self):
         """Sinf o'quvchilarini qaytaradi."""
         class_id = self.kwargs.get('class_id')
-        class_obj = get_object_or_404(Class, id=class_id)
+        class_obj = get_object_or_404(Class, id=class_id, deleted_at__isnull=True)
         
         queryset = ClassStudent.objects.filter(
-            class_obj=class_obj
+            class_obj=class_obj,
+            deleted_at__isnull=True
         ).select_related(
             'membership',
             'membership__user',
@@ -225,8 +226,8 @@ class ClassStudentDetailView(AuditTrailMixin, generics.RetrieveUpdateDestroyAPIV
     def get_queryset(self):
         """Sinf o'quvchilarini qaytaradi."""
         class_id = self.kwargs.get('class_id')
-        class_obj = get_object_or_404(Class, id=class_id)
-        return ClassStudent.objects.filter(class_obj=class_obj).select_related(
+        class_obj = get_object_or_404(Class, id=class_id, deleted_at__isnull=True)
+        return ClassStudent.objects.filter(class_obj=class_obj, deleted_at__isnull=True).select_related(
             'membership',
             'membership__user',
             'class_obj'

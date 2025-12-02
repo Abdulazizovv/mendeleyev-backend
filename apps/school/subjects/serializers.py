@@ -8,6 +8,7 @@ class SubjectSerializer(serializers.ModelSerializer):
     """Fan serializer."""
     
     branch_name = serializers.CharField(source='branch.name', read_only=True)
+    color = serializers.RegexField(r'^#(?:[0-9a-fA-F]{6})$', required=False, allow_blank=True)
     
     class Meta:
         model = Subject
@@ -18,6 +19,7 @@ class SubjectSerializer(serializers.ModelSerializer):
             'name',
             'code',
             'description',
+            'color',
             'is_active',
             'created_at',
             'updated_at',
@@ -30,6 +32,7 @@ class SubjectSerializer(serializers.ModelSerializer):
 class SubjectCreateSerializer(serializers.ModelSerializer):
     """Fan yaratish uchun serializer."""
     
+    color = serializers.RegexField(r'^#(?:[0-9a-fA-F]{6})$', required=False, allow_blank=True)
     class Meta:
         model = Subject
         fields = [
@@ -37,8 +40,82 @@ class SubjectCreateSerializer(serializers.ModelSerializer):
             'name',
             'code',
             'description',
+            'color',
             'is_active',
         ]
+
+
+class SubjectDetailSerializer(serializers.ModelSerializer):
+    """Fan detallari uchun kengaytirilgan serializer.
+
+    Qo'shimcha statistik ma'lumotlar: sinflar soni, faol sinflar, o'qituvchilar.
+    """
+    branch_name = serializers.CharField(source='branch.name', read_only=True)
+    color = serializers.RegexField(r'^#(?:[0-9a-fA-F]{6})$', required=False, allow_blank=True)
+    total_classes = serializers.SerializerMethodField()
+    active_classes = serializers.SerializerMethodField()
+    teachers = serializers.SerializerMethodField()
+    class_subjects = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Subject
+        fields = [
+            'id', 'branch', 'branch_name', 'name', 'code', 'description', 'color', 'is_active',
+            'total_classes', 'active_classes', 'teachers', 'class_subjects',
+            'created_at', 'updated_at', 'created_by', 'updated_by'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by']
+
+    def get_total_classes(self, obj):
+        return obj.class_subjects.filter(deleted_at__isnull=True).count()
+
+    def get_active_classes(self, obj):
+        return obj.class_subjects.filter(is_active=True, deleted_at__isnull=True).count()
+
+    def get_teachers(self, obj):
+        memberships = obj.class_subjects.filter(
+            teacher__isnull=False,
+            deleted_at__isnull=True
+        ).select_related('teacher__user')
+        seen = {}
+        for cs in memberships:
+            u = cs.teacher.user
+            if u.id not in seen:
+                seen[u.id] = {
+                    'id': str(u.id),
+                    'phone_number': u.phone_number,
+                    'full_name': u.get_full_name() or '',
+                }
+        return list(seen.values())
+
+    def get_class_subjects(self, obj):
+        qs = obj.class_subjects.filter(deleted_at__isnull=True).select_related(
+            'class_obj', 'teacher', 'teacher__user', 'quarter'
+        )
+        data = []
+        for cs in qs:
+            data.append({
+                'id': str(cs.id),
+                'class_id': str(cs.class_obj.id),
+                'class_name': cs.class_obj.name,
+                'hours_per_week': cs.hours_per_week,
+                'is_active': cs.is_active,
+                'teacher': (
+                    {
+                        'id': str(cs.teacher.user.id),
+                        'full_name': cs.teacher.user.get_full_name() or cs.teacher.user.phone_number,
+                        'phone_number': cs.teacher.user.phone_number
+                    } if cs.teacher else None
+                ),
+                'quarter': (
+                    {
+                        'id': str(cs.quarter.id),
+                        'name': cs.quarter.name,
+                        'number': cs.quarter.number
+                    } if cs.quarter else None
+                )
+            })
+        return data
 
 
 class ClassSubjectSerializer(serializers.ModelSerializer):

@@ -392,7 +392,7 @@ class BranchMembership(BaseModel):
     @classmethod
     def has_role(cls, user_id, branch_id, roles: list[str] | tuple[str, ...] | None = None) -> bool:
         """Check if user has a specific role (or any role) in a branch."""
-        qs = cls.objects.filter(user_id=user_id, branch_id=branch_id)
+        qs = cls.objects.filter(user_id=user_id, branch_id=branch_id, deleted_at__isnull=True)
         if roles:
             qs = qs.filter(role__in=list(roles))
         return qs.exists()

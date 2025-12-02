@@ -1,6 +1,6 @@
 from rest_framework import generics, status
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, SAFE_METHODS
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
@@ -38,6 +38,14 @@ class AcademicYearListView(AuditTrailMixin, generics.ListCreateAPIView):
         if self.request.method == 'POST':
             return AcademicYearCreateSerializer
         return AcademicYearSerializer
+
+    def get_permissions(self):
+        """Apply action-based branch roles: read is broad, write is restricted."""
+        # Broad read for branch members (including teacher, student, parent, other)
+        read_roles = ("branch_admin", "super_admin", "teacher", "student", "parent", "other")
+        write_roles = ("branch_admin", "super_admin")
+        self.required_branch_roles = read_roles if self.request.method in SAFE_METHODS else write_roles
+        return super().get_permissions()
     
     def perform_create(self, serializer):
         branch_id = self.kwargs.get('branch_id')
@@ -77,6 +85,13 @@ class AcademicYearDetailView(AuditTrailMixin, generics.RetrieveUpdateDestroyAPIV
     
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
+
+    def get_permissions(self):
+        """Apply action-based branch roles: read is broad, write is restricted."""
+        read_roles = ("branch_admin", "super_admin", "teacher", "student", "parent", "other")
+        write_roles = ("branch_admin", "super_admin")
+        self.required_branch_roles = read_roles if self.request.method in SAFE_METHODS else write_roles
+        return super().get_permissions()
     
     @extend_schema(
         summary="Akademik yil detallari",
@@ -117,6 +132,13 @@ class QuarterListView(AuditTrailMixin, generics.ListCreateAPIView):
         if self.request.method == 'POST':
             return QuarterCreateSerializer
         return QuarterSerializer
+
+    def get_permissions(self):
+        """Apply action-based branch roles: read is broad, write is restricted."""
+        read_roles = ("branch_admin", "super_admin", "teacher", "student", "parent", "other")
+        write_roles = ("branch_admin", "super_admin")
+        self.required_branch_roles = read_roles if self.request.method in SAFE_METHODS else write_roles
+        return super().get_permissions()
     
     def perform_create(self, serializer):
         academic_year_id = self.kwargs.get('academic_year_id')

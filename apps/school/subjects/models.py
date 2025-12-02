@@ -4,6 +4,7 @@ from apps.common.models import BaseModel
 from apps.branch.models import Branch, BranchMembership
 from apps.school.classes.models import Class
 from apps.school.academic.models import Quarter
+from django.core.validators import RegexValidator
 
 
 class Subject(BaseModel):
@@ -36,6 +37,14 @@ class Subject(BaseModel):
         verbose_name='Fan tavsifi',
         help_text='Fan haqida qo\'shimcha ma\'lumot'
     )
+    color = models.CharField(
+        max_length=7,
+        blank=True,
+        default='',
+        validators=[RegexValidator(r'^#(?:[0-9a-fA-F]{6})$', "Rang HEX formatda bo'lishi kerak, masalan #FF5733")],
+        verbose_name='Rang',
+        help_text="Dars jadvalida ko'rinadigan rang (#RRGGBB)"
+    )
     is_active = models.BooleanField(
         default=True,
         verbose_name='Faol fan',
@@ -52,6 +61,25 @@ class Subject(BaseModel):
         ]
         ordering = ['name']
     
+    def delete(self, using=None, keep_parents=False, hard=False):
+        """Soft delete fanni va unga biriktirilgan ClassSubject yozuvlarini ham soft delete qiladi.
+
+        Agar `hard=True` bo'lsa, hammasi qat'iy o'chiriladi (cascade).
+        """
+        from django.utils import timezone
+        if hard:
+            # Hard delete: related ClassSubject lar ham DB dan o'chiriladi (CASCADE)
+            return super().delete(using=using, keep_parents=keep_parents, hard=True)
+
+        # Soft delete: o'zini belgilash
+        if not self.deleted_at:
+            self.deleted_at = timezone.now()
+            self.save(update_fields=['deleted_at'])
+
+        # Fan bilan bog'liq still-active ClassSubject larni ham soft delete qilamiz
+        self.class_subjects.filter(deleted_at__isnull=True).update(deleted_at=self.deleted_at)
+        return self
+
     def __str__(self):
         return f"{self.name} @ {self.branch.name}"
 

@@ -14,6 +14,7 @@ from .models import Subject, ClassSubject
 from .serializers import (
     SubjectSerializer,
     SubjectCreateSerializer,
+    SubjectDetailSerializer,
     ClassSubjectSerializer,
     ClassSubjectCreateSerializer,
 )
@@ -35,10 +36,7 @@ class SubjectListView(AuditTrailMixin, generics.ListCreateAPIView):
         """Filial bo'yicha fanlarni qaytaradi."""
         branch_id = self.kwargs.get('branch_id')
         branch = get_object_or_404(Branch, id=branch_id)
-        
-        queryset = Subject.objects.filter(branch=branch)
-        
-        return queryset
+        return Subject.objects.filter(branch=branch, deleted_at__isnull=True)
     
     def get_serializer_class(self):
         if self.request.method == 'POST':
@@ -80,10 +78,20 @@ class SubjectDetailView(AuditTrailMixin, generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         branch_id = self.kwargs.get('branch_id')
         branch = get_object_or_404(Branch, id=branch_id)
-        return Subject.objects.filter(branch=branch)
+        return Subject.objects.filter(branch=branch, deleted_at__isnull=True)
     
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
+
+    def get_serializer_class(self):
+        # GET: extended detail serializer; PATCH/DELETE: base for simplicity
+        if self.request.method == 'GET':
+            return SubjectDetailSerializer
+        return super().get_serializer_class()
+
+    def perform_destroy(self, instance):
+        # Soft delete via BaseModel.delete()
+        instance.delete()
     
     @extend_schema(
         summary="Fan detallari",

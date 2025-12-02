@@ -91,6 +91,128 @@ class ClassModelTests(TestCase):
         class_obj.save()
         self.assertFalse(class_obj.can_add_student())
 
+    def test_class_delete_cascade_soft(self):
+        """Sinf soft-delete qilinganda ClassStudent va ClassSubject ham soft-delete bo'lishi kerak."""
+        # Setup class, student, subject, classsubject
+        class_obj = Class.objects.create(
+            branch=self.branch,
+            academic_year=self.academic_year,
+            name="2-A",
+            grade_level=2,
+            max_students=30,
+            created_by=self.user
+        )
+        student_user = User.objects.create_user(
+            phone_number="+998901234569",
+            password="testpass123"
+        )
+        student_membership = BranchMembership.objects.create(
+            user=student_user,
+            branch=self.branch,
+            role=BranchRole.STUDENT
+        )
+        cs = ClassStudent.objects.create(
+            class_obj=class_obj,
+            membership=student_membership,
+            created_by=self.user
+        )
+        subject = Subject.objects.create(
+            branch=self.branch,
+            name="Fizika",
+            code="PHYS",
+            created_by=self.user
+        )
+        from apps.school.subjects.models import ClassSubject
+        csub = ClassSubject.objects.create(
+            class_obj=class_obj,
+            subject=subject,
+            teacher=self.teacher_membership,
+            created_by=self.user
+        )
+
+        # Soft delete class
+        self.assertIsNone(class_obj.deleted_at)
+        class_obj.delete()
+        class_obj.refresh_from_db()
+        self.assertIsNotNone(class_obj.deleted_at)
+
+        # Related entries are soft-deleted
+        cs.refresh_from_db()
+        csub.refresh_from_db()
+        self.assertIsNotNone(cs.deleted_at)
+        self.assertIsNotNone(csub.deleted_at)
+
+class ClassApiTests(TestCase):
+    def setUp(self):
+        self.branch = Branch.objects.create(
+            name="Test School",
+            slug="test-school",
+            type="school",
+            status="active"
+        )
+        self.academic_year = AcademicYear.objects.create(
+            branch=self.branch,
+            name="2024-2025",
+            start_date="2024-09-01",
+            end_date="2025-06-30",
+            is_active=True
+        )
+        self.user = User.objects.create_user(
+            phone_number="+998901234570",
+            password="testpass123"
+        )
+        from rest_framework.test import APIClient
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+        BranchMembership.objects.create(
+            user=self.user,
+            branch=self.branch,
+            role=BranchRole.BRANCH_ADMIN
+        )
+
+    def test_deleted_class_not_in_list(self):
+        class_obj = Class.objects.create(
+            branch=self.branch,
+            academic_year=self.academic_year,
+            name="3-A",
+            grade_level=3,
+            max_students=30,
+            created_by=self.user
+        )
+        list_url = f"/api/v1/school/branches/{self.branch.id}/classes/"
+        # visible before delete
+        r1 = self.client.get(list_url, HTTP_X_BRANCH_ID=str(self.branch.id))
+        self.assertEqual(r1.status_code, 200)
+        self.assertTrue(any(item['id'] == str(class_obj.id) for item in r1.json().get('results', [])))
+
+        # delete
+        detail_url = f"/api/v1/school/branches/{self.branch.id}/classes/{class_obj.id}/"
+        rdel = self.client.delete(detail_url, HTTP_X_BRANCH_ID=str(self.branch.id))
+        self.assertEqual(rdel.status_code, 204)
+        class_obj.refresh_from_db()
+        self.assertIsNotNone(class_obj.deleted_at)
+
+        # not visible after delete
+        r2 = self.client.get(list_url, HTTP_X_BRANCH_ID=str(self.branch.id))
+        self.assertEqual(r2.status_code, 200)
+        self.assertFalse(any(item['id'] == str(class_obj.id) for item in r2.json().get('results', [])))
+
+    def test_class_students_permissions_infer_branch_from_class_id(self):
+        """Permissions should resolve branch from class_id without header or query param."""
+        # Create a class and enroll a student
+        class_obj = Class.objects.create(
+            branch=self.branch,
+            academic_year=self.academic_year,
+            name="4-A",
+            grade_level=4,
+            max_students=30,
+            created_by=self.user
+        )
+        # Hdr not provided; should still authorize via class_id inference
+        url = f"/api/v1/school/classes/{class_obj.id}/students/"
+        r = self.client.get(url)
+        self.assertEqual(r.status_code, 200, r.content)
+
 
 class ClassSubjectModelTests(TestCase):
     """ClassSubject model testlari."""

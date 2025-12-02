@@ -99,6 +99,29 @@ class Class(BaseModel):
         """Sinfga yana o'quvchi qo'shish mumkinmi?"""
         return self.current_students_count < self.max_students
 
+    def delete(self, using=None, keep_parents=False, hard=False):
+        """Soft delete sinfni va unga bog'liq yozuvlarni ham soft delete qiladi.
+
+        - ClassStudent: ushbu sinfdagi barcha biriktirishlar
+        - ClassSubject: ushbu sinfdagi barcha fan biriktirishlar
+
+        hard=True bo'lsa, hammasi qat'iy o'chiriladi.
+        """
+        from django.utils import timezone
+        from apps.school.subjects.models import ClassSubject
+
+        if hard:
+            return super().delete(using=using, keep_parents=keep_parents, hard=True)
+
+        if not self.deleted_at:
+            self.deleted_at = timezone.now()
+            self.save(update_fields=['deleted_at'])
+
+        # Cascade soft-delete to related entries
+        self.class_students.filter(deleted_at__isnull=True).update(deleted_at=self.deleted_at)
+        ClassSubject.objects.filter(class_obj=self, deleted_at__isnull=True).update(deleted_at=self.deleted_at)
+        return self
+
 
 class ClassStudent(BaseModel):
     """Sinf o'quvchilari through model.

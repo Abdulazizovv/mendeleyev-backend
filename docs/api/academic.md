@@ -39,11 +39,10 @@ Authorization: Bearer <access_token>
 
 ## Permissions
 
-- `branch_admin` — Barcha operatsiyalar
-- `super_admin` — Barcha operatsiyalar
-- `teacher` — Ko'rish
-- `student` — Ko'rish
-- `parent` — Ko'rish
+- Read (GET/HEAD/OPTIONS): `teacher`, `student`, `parent`, `other`, `branch_admin`, `super_admin`
+- Write (POST/PATCH/DELETE): `branch_admin`, `super_admin` — faqat shu rollar o'zgartira oladi
+
+Branch kontekstini ko'rsatish uchun `X-Branch-Id` header talab qilinadi (UUID). Ayrim yo'llarda `branch_id` URLda berilgan bo'lsa ham, `academic-years/{academic_year_id}/quarters/` kabi yo'llarda header orqali filial aniqlanadi.
 
 ## Endpoints
 
@@ -198,6 +197,8 @@ Filialning joriy akademik yilini qaytaradi.
 
 **GET** `/api/v1/school/academic-years/{academic_year_id}/quarters/`
 
+Eslatma: Bu endpointda filial konteksti `X-Branch-Id` header orqali aniqlanadi.
+
 Akademik yildagi barcha choraklarni qaytaradi.
 
 **Response 200:**
@@ -219,6 +220,8 @@ Akademik yildagi barcha choraklarni qaytaradi.
 ### 8. Chorak Yaratish
 
 **POST** `/api/v1/school/academic-years/{academic_year_id}/quarters/`
+
+Eslatma: Bu endpointga yozish (POST) faqat `branch_admin` va `super_admin` rollari uchun ruxsat etiladi. `X-Branch-Id` header talab qilinadi.
 
 Yangi chorak yaratadi.
 

@@ -13,6 +13,7 @@ Fanlar quyidagi maydonlarga ega:
 - `name` (String) — Fan nomi (masalan: "Matematika", "Fizika")
 - `code` (String, optional) — Fan kodi (masalan: "MATH", "PHYS")
 - `description` (Text, optional) — Fan tavsifi
+- `color` (String, optional) — Fan rang kodi (HEX, `#RRGGBB`). Jadvalda fan rangini ko'rsatish uchun ishlatiladi.
 - `is_active` (Boolean) — Faol fan
 - Audit trail: `created_at`, `updated_at`, `created_by`, `updated_by`
 
@@ -51,23 +52,33 @@ Authorization: Bearer <access_token>
 Filialdagi barcha fanlarni qaytaradi.
 
 **Query Parameters:**
+- `page` (Number, optional) — Sahifa raqami (default: 1)
+- `page_size` (Number, optional) — Sahifa hajmi (default: 20, max: 100)
+- `search` (String, optional) — Qidiruv (nomi, kodi)
+- `ordering` (String, optional) — Tartiblash (masalan: `name`, `-name`, `code`, `-code`)
 - `is_active` (Boolean, optional) — Faol fanlar bo'yicha filter
 
-**Response 200:**
+**Response 200:** (Paginatsiya qilingan natija)
 ```json
-[
-  {
-    "id": "123e4567-e89b-12d3-a456-426614174000",
-    "branch": "456e7890-e89b-12d3-a456-426614174001",
-    "branch_name": "Alpha School",
-    "name": "Matematika",
-    "code": "MATH",
-    "description": "Matematika fani",
-    "is_active": true,
-    "created_at": "2024-09-01T10:00:00Z",
-    "updated_at": "2024-09-01T10:00:00Z"
-  }
-]
+{
+  "count": 10,
+  "next": "/api/v1/school/branches/{branch_id}/subjects/?page=2&page_size=20",
+  "previous": null,
+  "results": [
+    {
+      "id": "123e4567-e89b-12d3-a456-426614174000",
+      "branch": "456e7890-e89b-12d3-a456-426614174001",
+      "branch_name": "Alpha School",
+      "name": "Matematika",
+      "code": "MATH",
+      "description": "Matematika fani",
+      "color": "#2D9CDB",
+      "is_active": true,
+      "created_at": "2024-09-01T10:00:00Z",
+      "updated_at": "2024-09-01T10:00:00Z"
+    }
+  ]
+}
 ```
 
 ### 2. Fan Yaratish
@@ -79,14 +90,17 @@ Yangi fan yaratadi.
 **Request Body:**
 ```json
 {
+  "branch": "456e7890-e89b-12d3-a456-426614174001",
   "name": "Matematika",
   "code": "MATH",
   "description": "Matematika fani",
+  "color": "#2D9CDB",
   "is_active": true
 }
 ```
 
 **Validation Rules:**
+- `branch` so'rov bodysida talab qilinadi va URL dagi `{branch_id}` bilan mos bo'lishi kerak
 - `name` tanlangan filialda unique bo'lishi kerak
 - `code` ixtiyoriy, lekin unique bo'lishi tavsiya etiladi
 
@@ -99,6 +113,7 @@ Yangi fan yaratadi.
   "name": "Matematika",
   "code": "MATH",
   "description": "Matematika fani",
+  "color": "#2D9CDB",
   "is_active": true,
   "created_at": "2024-09-01T10:00:00Z",
   "updated_at": "2024-09-01T10:00:00Z"
@@ -116,9 +131,57 @@ Yangi fan yaratadi.
 
 **GET** `/api/v1/school/branches/{branch_id}/subjects/{id}/`
 
-Fan to'liq ma'lumotlarini qaytaradi.
+Fan to'liq ma'lumotlarini va qo'shimcha statistikani qaytaradi.
 
-**Response 200:** (Fanlar ro'yxati bilan bir xil format)
+**Response 200 (kengaytirilgan):**
+```json
+{
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "branch": "456e7890-e89b-12d3-a456-426614174001",
+  "branch_name": "Alpha School",
+  "name": "Matematika",
+  "code": "MATH",
+  "description": "Matematika fani",
+  "color": "#2D9CDB",
+  "is_active": true,
+  "total_classes": 5,
+  "active_classes": 4,
+  "teachers": [
+    {
+      "id": "c1a2...",
+      "phone_number": "+998901234500",
+      "full_name": "Akmal Rustamov"
+    }
+  ],
+  "class_subjects": [
+    {
+      "id": "789e0123-e89b-12d3-a456-426614174008",
+      "class_id": "321e4567-e89b-12d3-a456-426614174010",
+      "class_name": "5-A",
+      "hours_per_week": 4,
+      "is_active": true,
+      "teacher": {
+        "id": "c1a2...",
+        "full_name": "Akmal Rustamov",
+        "phone_number": "+998901234500"
+      },
+      "quarter": {
+        "id": "9b8c...",
+        "name": "1-chorak",
+        "number": 1
+      }
+    }
+  ],
+  "created_at": "2024-09-01T10:00:00Z",
+  "updated_at": "2024-09-01T10:00:00Z"
+}
+```
+
+**Qo'shimcha maydonlar izohi:**
+- `total_classes`: Fan biriktirilgan sinflar umumiy soni (soft-delete hisobga olinmaydi)
+- `active_classes`: Faol (`is_active=true`) biriktirilgan sinflar soni
+- `teachers`: Ushbu fanga biriktirilgan o'qituvchilar (unikal)
+- `class_subjects`: Har bir sinf-fan biriktirish obyekti detallari
 
 ### 4. Fanni Yangilash
 
@@ -126,11 +189,12 @@ Fan to'liq ma'lumotlarini qaytaradi.
 
 Fan ma'lumotlarini yangilaydi.
 
-**Request Body:**
+**Request Body (misol):**
 ```json
 {
   "name": "Matematika (Yangi)",
-  "description": "Yangilangan tavsif"
+  "description": "Yangilangan tavsif",
+  "color": "#F2994A"
 }
 ```
 
@@ -140,9 +204,14 @@ Fan ma'lumotlarini yangilaydi.
 
 **DELETE** `/api/v1/school/branches/{branch_id}/subjects/{id}/`
 
-Fanni soft-delete qiladi.
+Fanni soft-delete qiladi (ma'lumotlar bazada qoladi, `deleted_at` belgilanadi, ro'yxatlarda ko'rinmaydi).
 
 **Response 204:** No Content
+
+**Soft Delete Xulq-atvori:**
+- Keyinchalik tiklash uchun admin panelda yoki alohida endpoint orqali `restore` chaqirsa bo'ladi (hozircha umumiy endpoint yo'q).
+- Hard delete uchun faqat ichki maqsadlarda `hard_delete()` ishlatiladi.
+- Fan soft delete qilinganda unga biriktirilgan barcha `ClassSubject` yozuvlari ham avtomatik soft delete qilinadi (`deleted_at` belgilanadi) va o'qituvchi / o'quvchi dashboard fan ro'yxatlarida ko'rinmaydi.
 
 ### 6. Sinf Fanlari Ro'yxati
 
@@ -151,28 +220,37 @@ Fanni soft-delete qiladi.
 Sinfdagi barcha fanlarni qaytaradi.
 
 **Query Parameters:**
+- `page` (Number, optional) — Sahifa raqami (default: 1)
+- `page_size` (Number, optional) — Sahifa hajmi (default: 20, max: 100)
+- `search` (String, optional) — Qidiruv (fan nomi, o'qituvchi ismi)
+- `ordering` (String, optional) — Tartiblash (masalan: `subject__name`, `-subject__name`)
 - `is_active` (Boolean, optional) — Faol fanlar bo'yicha filter
 
-**Response 200:**
+**Response 200:** (Paginatsiya qilingan natija)
 ```json
-[
-  {
-    "id": "234e5678-e89b-12d3-a456-426614174005",
-    "class_obj": "123e4567-e89b-12d3-a456-426614174000",
-    "class_name": "1-A",
-    "subject": "345e6789-e89b-12d3-a456-426614174006",
-    "subject_name": "Matematika",
-    "subject_code": "MATH",
-    "teacher": "567e8901-e89b-12d3-a456-426614174007",
-    "teacher_name": "John Doe",
-    "hours_per_week": 4,
-    "quarter": "789e0123-e89b-12d3-a456-426614174008",
-    "quarter_name": "1-chorak",
-    "is_active": true,
-    "created_at": "2024-09-01T10:00:00Z",
-    "updated_at": "2024-09-01T10:00:00Z"
-  }
-]
+{
+  "count": 8,
+  "next": "/api/v1/school/classes/{class_id}/subjects/?page=2&page_size=20",
+  "previous": null,
+  "results": [
+    {
+      "id": "234e5678-e89b-12d3-a456-426614174005",
+      "class_obj": "123e4567-e89b-12d3-a456-426614174000",
+      "class_name": "1-A",
+      "subject": "345e6789-e89b-12d3-a456-426614174006",
+      "subject_name": "Matematika",
+      "subject_code": "MATH",
+      "teacher": "567e8901-e89b-12d3-a456-426614174007",
+      "teacher_name": "John Doe",
+      "hours_per_week": 4,
+      "quarter": "789e0123-e89b-12d3-a456-426614174008",
+      "quarter_name": "1-chorak",
+      "is_active": true,
+      "created_at": "2024-09-01T10:00:00Z",
+      "updated_at": "2024-09-01T10:00:00Z"
+    }
+  ]
+}
 ```
 
 ### 7. Sinfga Fan Qo'shish
@@ -308,6 +386,7 @@ const createSubject = async () => {
       name: 'Matematika',
       code: 'MATH',
       description: 'Matematika fani',
+      color: '#2D9CDB',
       is_active: true
     })
   });
@@ -368,6 +447,13 @@ const updateClassSubjectTeacher = async (classId, classSubjectId, newTeacherId) 
   const updatedData = await response.json();
   return updatedData;
 };
+
+## Rang Tanlash Qoidalari
+
+- `color` faqat HEX formatda qabul qilinadi: `#RRGGBB`
+- Misol: `#FF5733`, `#2D9CDB`, `#27AE60`
+- Bo'sh qoldirilsa, UI default rangdan foydalansa bo'ladi.
+- Rang jadvalni vizual farqlash uchun; branch ichida takrorlansa ham ruxsat (agar unikal talab qilinsa, backendda qo'shimcha constraint qo'shish mumkin).
 ```
 
 ## Dashboard API
@@ -394,10 +480,12 @@ Quyidagi modellar signallar orqali avtomatik yaratiladi:
 2. **Unique Constraints**: 
    - Har bir filial uchun fan nomi unique
    - Har bir sinf uchun fan bir marta qo'shilishi mumkin
+  - Soft-delete qilingan fan nomi qayta ishlatilsa bo'ladi (agar unique constraint buzilmasa). Agar constraint tufayli xato bo'lsa, avval eski fan tiklanishi yoki nom o'zgartirilishi kerak.
 
 3. **Relationships**:
    - Fan filialga bog'liq
    - Sinf-fan biriktirish sinf, fan, o'qituvchi va chorakka bog'liq
+  - Soft-delete qilingan fan bilan bog'liq `ClassSubject` lar ham avtomatik yashirinmaydi; ular timetable logikangizda filtrlanishi kerak.
    - O'qituvchi ixtiyoriy (keyinchalik tayinlash mumkin)
 
 4. **Validation**:
