@@ -555,6 +555,15 @@ class StudentProfileSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
     current_class = serializers.SerializerMethodField()
     relatives_count = serializers.SerializerMethodField()
+    balance = serializers.SerializerMethodField()
+    birth_certificate = serializers.SerializerMethodField()
+    birth_certificate_url = serializers.SerializerMethodField()
+    # Global avatar from user's Profile
+    avatar = serializers.SerializerMethodField()
+    avatar_url = serializers.SerializerMethodField()
+    # Status and display
+    status = serializers.CharField(read_only=True)
+    status_display = serializers.SerializerMethodField()
     
     class Meta:
         model = StudentProfile
@@ -571,12 +580,18 @@ class StudentProfileSerializer(serializers.ModelSerializer):
             'branch_id',
             'branch_name',
             'gender',
+            'status',
+            'status_display',
             'date_of_birth',
             'address',
+            'avatar',
+            'avatar_url',
             'birth_certificate',
+            'birth_certificate_url',
             'additional_fields',
             'current_class',
             'relatives_count',
+            'balance',
             'created_at',
             'updated_at',
         ]
@@ -596,6 +611,156 @@ class StudentProfileSerializer(serializers.ModelSerializer):
     def get_relatives_count(self, obj):
         """Yaqinlar sonini qaytarish."""
         return obj.relatives.count()
+    
+    def get_birth_certificate(self, obj):
+        """Tu'gilganlik guvohnoma rasmi nisbiy URL."""
+        if obj.birth_certificate:
+            # Faqat nisbiy URL qaytarish (MEDIA_URL bilan)
+            return obj.birth_certificate.url
+        return None
+    
+    def get_birth_certificate_url(self, obj):
+        """Tu'gilganlik guvohnoma rasmi to'liq URL."""
+        if obj.birth_certificate:
+            request = self.context.get('request')
+            if request:
+                # request.build_absolute_uri() portni ham o'z ichiga oladi
+                # Development va production uchun to'liq URL yaratish
+                return request.build_absolute_uri(obj.birth_certificate.url)
+            # Agar request bo'lmasa, nisbiy URL qaytarish
+            return obj.birth_certificate.url
+        return None
+
+    def get_avatar(self, obj):
+        """Global profil avatarining nisbiy URL."""
+        profile = getattr(getattr(obj.user_branch.user, 'profile', None), 'avatar', None)
+        if profile:
+            try:
+                return profile.url
+            except Exception:
+                return None
+        return None
+
+    def get_avatar_url(self, obj):
+        """Global profil avatarining to'liq URL."""
+        av = self.get_avatar(obj)
+        if not av:
+            return None
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(av)
+        return av
+
+    def get_status_display(self, obj):
+        try:
+            return obj.get_status_display()
+        except Exception:
+            return obj.status
+    
+    def get_balance(self, obj):
+        """O'quvchi balansini qaytarish."""
+        include_finance_details = self.context.get('include_finance_details', False)
+        
+        try:
+            # Balance OneToOne relation orqali olish
+            balance = obj.balance
+            
+            if include_finance_details:
+                # Detail view uchun to'liq ma'lumotlar
+                from apps.school.finance.models import Transaction, Payment, TransactionType, TransactionStatus
+                from django.db.models import Sum, Q
+                
+                # Tranzaksiyalar statistikasi
+                transactions = Transaction.objects.filter(
+                    student_profile=obj,
+                    deleted_at__isnull=True,
+                    status=TransactionStatus.COMPLETED
+                )
+                
+                total_income = transactions.filter(
+                    transaction_type__in=[TransactionType.INCOME, TransactionType.PAYMENT]
+                ).aggregate(total=Sum('amount'))['total'] or 0
+                
+                total_expense = transactions.filter(
+                    transaction_type__in=[TransactionType.EXPENSE, TransactionType.SALARY, TransactionType.REFUND]
+                ).aggregate(total=Sum('amount'))['total'] or 0
+                
+                transactions_count = transactions.count()
+                
+                # To'lovlar statistikasi
+                payments = Payment.objects.filter(
+                    student_profile=obj,
+                    deleted_at__isnull=True
+                ).order_by('-payment_date')
+                
+                total_payments = payments.aggregate(total=Sum('final_amount'))['total'] or 0
+                payments_count = payments.count()
+                
+                last_payment = payments.first()
+                last_payment_data = None
+                if last_payment:
+                    # Period display uchun
+                    period_display = last_payment.period
+                    try:
+                        from apps.school.finance.models import SubscriptionPeriod
+                        period_display = dict(SubscriptionPeriod.choices).get(last_payment.period, last_payment.period)
+                    except:
+                        pass
+                    
+                    last_payment_data = {
+                        'id': str(last_payment.id),
+                        'amount': last_payment.final_amount,
+                        'date': last_payment.payment_date.isoformat() if last_payment.payment_date else None,
+                        'period': last_payment.period,
+                        'period_display': period_display,
+                    }
+                
+                return {
+                    'id': str(balance.id),
+                    'balance': balance.balance,
+                    'notes': balance.notes,
+                    'updated_at': balance.updated_at.isoformat() if balance.updated_at else None,
+                    'transactions_summary': {
+                        'total_income': total_income,
+                        'total_expense': total_expense,
+                        'net_balance': total_income - total_expense,
+                        'transactions_count': transactions_count,
+                    },
+                    'payments_summary': {
+                        'total_payments': total_payments,
+                        'payments_count': payments_count,
+                        'last_payment': last_payment_data,
+                    }
+                }
+            else:
+                # List view uchun faqat balans summasi
+                return {
+                    'balance': balance.balance
+                }
+        except:
+            # Agar balance bo'lmasa
+            if include_finance_details:
+                return {
+                    'id': None,
+                    'balance': 0,
+                    'notes': '',
+                    'updated_at': None,
+                    'transactions_summary': {
+                        'total_income': 0,
+                        'total_expense': 0,
+                        'net_balance': 0,
+                        'transactions_count': 0,
+                    },
+                    'payments_summary': {
+                        'total_payments': 0,
+                        'payments_count': 0,
+                        'last_payment': None,
+                    }
+                }
+            else:
+                return {
+                    'balance': 0
+                }
 
 
 class StudentRelativeSerializer(serializers.ModelSerializer):
@@ -604,6 +769,8 @@ class StudentRelativeSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
     relationship_type_display = serializers.CharField(source='get_relationship_type_display', read_only=True)
     student_name = serializers.CharField(source='student_profile.full_name', read_only=True)
+    photo = serializers.SerializerMethodField()
+    photo_url = serializers.SerializerMethodField()
     
     class Meta:
         model = StudentRelative
@@ -626,6 +793,7 @@ class StudentRelativeSerializer(serializers.ModelSerializer):
             'position',
             'passport_number',
             'photo',
+            'photo_url',
             'is_primary_contact',
             'is_guardian',
             'additional_info',
@@ -634,6 +802,25 @@ class StudentRelativeSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
         read_only_fields = ('id', 'created_at', 'updated_at')
+    
+    def get_photo(self, obj):
+        """Yaqin rasmi nisbiy URL."""
+        if obj.photo:
+            # Faqat nisbiy URL qaytarish (MEDIA_URL bilan)
+            return obj.photo.url
+        return None
+    
+    def get_photo_url(self, obj):
+        """Yaqin rasmi to'liq URL."""
+        if obj.photo:
+            request = self.context.get('request')
+            if request:
+                # request.build_absolute_uri() portni ham o'z ichiga oladi
+                # Development va production uchun to'liq URL yaratish
+                return request.build_absolute_uri(obj.photo.url)
+            # Agar request bo'lmasa, nisbiy URL qaytarish
+            return obj.photo.url
+        return None
 
 
 class StudentDocumentsUpdateSerializer(serializers.Serializer):
@@ -695,6 +882,122 @@ class StudentDocumentsUpdateSerializer(serializers.Serializer):
         if update_fields:
             instance.save(update_fields=update_fields)
         
+        return instance
+
+
+class StudentUpdateSerializer(serializers.Serializer):
+    """O'quvchi ma'lumotlarini yangilash uchun serializer.
+
+    Barcha asosiy maydonlar, telefon raqami, profil rasmi (avatar) va hujjatlar
+    (birth_certificate) ni bir so'rovda yangilashni qo'llab-quvvatlaydi.
+    Multipart/form-data va JSON bilan ishlaydi.
+    """
+
+    # User fields
+    phone_number = serializers.CharField(required=False, allow_blank=False)
+    first_name = serializers.CharField(required=False, allow_blank=True)
+    last_name = serializers.CharField(required=False, allow_blank=True)
+    email = serializers.EmailField(required=False, allow_null=True)
+
+    # Profile avatar
+    avatar = serializers.FileField(required=False, allow_null=True)
+
+    # StudentProfile fields
+    middle_name = serializers.CharField(required=False, allow_blank=True)
+    gender = serializers.ChoiceField(
+        choices=['male', 'female', 'other', 'unspecified'],
+        required=False
+    )
+    date_of_birth = serializers.DateField(required=False, allow_null=True)
+    address = serializers.CharField(required=False, allow_blank=True)
+    status = serializers.ChoiceField(
+        choices=['active', 'archived', 'suspended', 'graduated', 'transferred'],
+        required=False
+    )
+    additional_fields = serializers.JSONField(required=False, allow_null=True)
+    birth_certificate = serializers.FileField(required=False, allow_null=True)
+
+    def validate_phone_number(self, value):
+        normalized = str(value).strip().replace(' ', '')
+        if not normalized:
+            raise serializers.ValidationError("Telefon raqam noto'g'ri formatda.")
+        return normalized
+
+    def validate(self, attrs):
+        """Telefon raqami unikalligini tekshirish va normalizatsiya."""
+        instance: StudentProfile = self.instance
+        user = instance.user_branch.user if instance else None
+
+        phone_number = attrs.get('phone_number')
+        if phone_number:
+            normalized = self.validate_phone_number(phone_number)
+            attrs['phone_number'] = normalized
+            # Uniqueness across users except current
+            qs = get_user_model().objects.filter(phone_number=normalized)
+            if user:
+                qs = qs.exclude(id=user.id)
+            if qs.exists():
+                raise serializers.ValidationError({'phone_number': "Bu telefon raqami allaqachon ishlatilmoqda."})
+
+        return attrs
+
+    def update(self, instance: StudentProfile, validated_data):
+        """Apply changes to User, Profile and StudentProfile in one go."""
+        user = instance.user_branch.user
+        profile = getattr(user, 'profile', None)
+
+        # Track update fields
+        profile_updates = []
+        student_updates = []
+        user_updated = False
+
+        # Update user fields
+        for f in ('phone_number', 'first_name', 'last_name', 'email'):
+            if f in validated_data:
+                setattr(user, f, validated_data[f])
+                user_updated = True
+        if user_updated:
+            user.save()
+
+        # Update avatar
+        if 'avatar' in validated_data:
+            if profile is None:
+                # Create profile lazily if missing
+                from auth.profiles.models import Profile as GlobalProfile
+                profile = GlobalProfile.objects.create(user=user)
+            profile.avatar = validated_data['avatar']
+            profile_updates.append('avatar')
+        if profile_updates:
+            profile.save(update_fields=profile_updates)
+
+        # Update StudentProfile fields
+        mapping_fields = [
+            'middle_name', 'gender', 'date_of_birth', 'address', 'status',
+        ]
+        for f in mapping_fields:
+            if f in validated_data:
+                setattr(instance, f, validated_data[f])
+                student_updates.append(f)
+
+        # Merge additional_fields
+        if 'additional_fields' in validated_data:
+            existing = instance.additional_fields or {}
+            add = validated_data['additional_fields'] or {}
+            try:
+                existing.update(add)
+            except Exception:
+                existing = add or {}
+            instance.additional_fields = existing
+            student_updates.append('additional_fields')
+
+        # Birth certificate file
+        if 'birth_certificate' in validated_data:
+            instance.birth_certificate = validated_data['birth_certificate']
+            student_updates.append('birth_certificate')
+
+        if student_updates:
+            instance.save(update_fields=student_updates)
+
         return instance
 
 

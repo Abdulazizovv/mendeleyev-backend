@@ -225,3 +225,33 @@ class StudentAPITests(TestCase):
         self.assertTrue(response.data['exists_globally'])
         self.assertEqual(len(response.data['all_branches_data']), 1)
 
+    def test_update_student_basic_fields(self):
+        """PATCH orqali o'quvchi ma'lumotlarini yangilash testi (basic fields)."""
+        # O'quvchi yaratish
+        student_user = User.objects.create_user(
+            phone_number="+998901234570",
+            password="testpass123",
+            first_name="Ali",
+            last_name="Valiyev"
+        )
+        student_membership = BranchMembership.objects.create(
+            user=student_user,
+            branch=self.branch,
+            role=BranchRole.STUDENT
+        )
+        student_profile = StudentProfile.objects.create(
+            user_branch=student_membership
+        )
+
+        url = f"/api/v1/school/students/{student_profile.id}/"
+        payload = {
+            "first_name": "Alisher",
+            "status": "active",
+            "additional_fields": {"nationality": "UZ"}
+        }
+        resp = self.client.patch(url, payload, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data["first_name"], "Alisher")
+        self.assertEqual(resp.data["status"], "active")
+        self.assertIn("additional_fields", resp.data)
+

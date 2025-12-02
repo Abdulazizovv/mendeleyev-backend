@@ -64,6 +64,16 @@ class Branch(BaseModel):
         verbose_name='Slug',
         help_text='Filial uchun unikal nom (slug)'
     )
+    
+    code = models.CharField(
+        max_length=10,
+        unique=True,
+        db_index=True,
+        blank=True,
+        null=True,
+        verbose_name='Filial kodi',
+        help_text='Filial kodi (masalan: TAS, SAM, BUK) - shaxsiy raqam generatsiyasi uchun'
+    )
 
     status = models.CharField(
         max_length=20,

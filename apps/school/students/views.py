@@ -4,6 +4,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework import generics
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
@@ -18,6 +19,7 @@ from .serializers import (
     StudentRelativeCreateSerializer,
     StudentRelativeSerializer,
     StudentDocumentsUpdateSerializer,
+    StudentUpdateSerializer,
     UserCheckSerializer,
 )
 from auth.users.models import User
@@ -85,7 +87,10 @@ class StudentCreateView(APIView):
         student_profile = serializer.save()
         
         # StudentProfile serializer bilan qaytarish
-        response_serializer = StudentProfileSerializer(student_profile)
+        response_serializer = StudentProfileSerializer(
+            student_profile,
+            context={'request': request}
+        )
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
@@ -186,6 +191,12 @@ class StudentListView(generics.ListAPIView):
         
         return queryset
     
+    def get_serializer_context(self):
+        """Request context ni serializer ga uzatish."""
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
+    
     def _get_branch_id(self):
         """Branch ID ni olish."""
         from uuid import UUID
@@ -226,6 +237,7 @@ class StudentListView(generics.ListAPIView):
 class StudentDetailView(APIView):
     """O'quvchi ma'lumotlari."""
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
     
     @extend_schema(
         responses={200: StudentProfileSerializer},
@@ -253,9 +265,53 @@ class StudentDetailView(APIView):
         
         serializer = StudentProfileSerializer(
             student_profile,
-            context={'include_finance_details': True}  # Detail view uchun barcha moliyaviy ma'lumotlar
+            context={
+                'request': request,
+                'include_finance_details': True  # Detail view uchun barcha moliyaviy ma'lumotlar
+            }
         )
         return Response(serializer.data)
+
+    @extend_schema(
+        request=StudentUpdateSerializer,
+        responses={200: StudentProfileSerializer},
+        summary="O'quvchi ma'lumotlarini yangilash",
+        description=(
+            "Telefon raqami, ism/familiya, global profil rasmi (avatar), student profil maydonlari va hujjatlarni"
+            " bir so'rovda (multipart/form-data yoki JSON) yangilash."
+        ),
+    )
+    @transaction.atomic
+    def patch(self, request, student_id):
+        try:
+            student_profile = StudentProfile.objects.select_related(
+                'user_branch', 'user_branch__user', 'user_branch__branch'
+            ).get(id=student_id, deleted_at__isnull=True)
+        except StudentProfile.DoesNotExist:
+            return Response({"detail": "O'quvchi topilmadi."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Permissions: super admin yoki shu filialda BRANCH_ADMIN
+        user = request.user
+        branch_id = str(student_profile.user_branch.branch_id)
+        if not user.is_superuser:
+            if not BranchMembership.has_role(user.id, branch_id, [BranchRole.BRANCH_ADMIN]):
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied("Ruxsat yo'q.")
+
+        serializer = StudentUpdateSerializer(
+            instance=student_profile,
+            data=request.data,
+            partial=True,
+            context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        response_serializer = StudentProfileSerializer(
+            student_profile,
+            context={'request': request, 'include_finance_details': True}
+        )
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
 
 
 class StudentDocumentsUpdateView(APIView):
@@ -315,7 +371,13 @@ class StudentDocumentsUpdateView(APIView):
         serializer.save()
         
         # Yangilangan ma'lumotlarni qaytarish
-        response_serializer = StudentProfileSerializer(student_profile)
+        response_serializer = StudentProfileSerializer(
+            student_profile,
+            context={
+                'request': request,
+                'include_finance_details': True
+            }
+        )
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
 
@@ -345,7 +407,11 @@ class StudentRelativeListView(APIView):
             )
         
         relatives = student_profile.relatives.filter(deleted_at__isnull=True)
-        serializer = StudentRelativeSerializer(relatives, many=True)
+        serializer = StudentRelativeSerializer(
+            relatives,
+            many=True,
+            context={'request': request}
+        )
         return Response(serializer.data)
     
     @extend_schema(
@@ -373,7 +439,10 @@ class StudentRelativeListView(APIView):
         serializer.is_valid(raise_exception=True)
         relative = serializer.save()
         
-        response_serializer = StudentRelativeSerializer(relative)
+        response_serializer = StudentRelativeSerializer(
+            relative,
+            context={'request': request}
+        )
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 

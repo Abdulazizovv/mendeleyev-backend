@@ -42,7 +42,7 @@ BranchMembership
 ```python
 StudentProfile
 ├── user_branch (OneToOne to BranchMembership)
-├── personal_number (unique, auto: ST-YYYY-NNNN)
+├── personal_number (unique, auto: {BRANCH_CODE}-{ACADEMIC_YEAR_SHORT}-{ORDER})
 ├── middle_name, gender, date_of_birth
 ├── address, birth_certificate
 ├── additional_fields (JSON)
@@ -145,7 +145,7 @@ Branch (1)
 ### O'quvchi topish
 ```python
 # Shaxsiy raqam bo'yicha
-StudentProfile.objects.get(personal_number='ST-2024-0001')
+StudentProfile.objects.get(personal_number='TAS-24-0001')
 
 # Telefon bo'yicha
 StudentProfile.objects.filter(

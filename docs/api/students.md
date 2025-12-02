@@ -39,7 +39,7 @@ POST /api/v1/school/students/check-user/
     "created_at": "2024-01-01T00:00:00Z",
     "student_profile": {
       "id": "uuid",
-      "personal_number": "ST-2024-0001",
+      "personal_number": "TAS-24-0001",
       "full_name": "Ali Olim o'g'li Valiyev",
       "status": "active",
       "status_display": "Aktiv",
@@ -57,7 +57,7 @@ POST /api/v1/school/students/check-user/
       "created_at": "2024-01-01T00:00:00Z",
       "student_profile": {
         "id": "uuid",
-        "personal_number": "ST-2024-0001",
+        "personal_number": "TAS-24-0001",
         "full_name": "Ali Olim o'g'li Valiyev",
         "status": "active",
         "status_display": "Aktiv",
@@ -103,7 +103,7 @@ POST /api/v1/school/students/check-relative/
     "is_guardian": true,
     "student": {
       "id": "uuid",
-      "personal_number": "ST-2024-0001",
+      "personal_number": "TAS-24-0001",
       "full_name": "Ali Olim o'g'li Valiyev",
       "branch_id": "uuid",
       "branch_name": "Filial nomi"
@@ -122,7 +122,7 @@ POST /api/v1/school/students/check-relative/
       "is_guardian": true,
       "student": {
         "id": "uuid",
-        "personal_number": "ST-2024-0001",
+        "personal_number": "TAS-24-0001",
         "full_name": "Ali Olim o'g'li Valiyev",
         "branch_id": "uuid",
         "branch_name": "Filial nomi"
@@ -176,7 +176,7 @@ GET /api/v1/school/students/
   "results": [
     {
       "id": "uuid",
-      "personal_number": "ST-2024-0001",
+      "personal_number": "TAS-24-0001",
       "user_id": "uuid",
       "phone_number": "+998901234567",
       "first_name": "Ali",
@@ -342,6 +342,9 @@ POST /api/v1/school/students/create/
 - Agar user allaqachon mavjud bo'lsa, ma'lumotlar yangilanadi
 - `StudentBalance` avtomatik yaratiladi (signal orqali)
 - `personal_number` avtomatik generatsiya qilinadi
+- **Fayllar**: `birth_certificate` va `birth_certificate_url` - nisbiy va to'liq URL
+  - `birth_certificate`: Nisbiy URL (masalan: `/media/students/birth_certificates/cert_123.pdf`)
+  - `birth_certificate_url`: To'liq URL (masalan: `https://api.example.com/media/students/birth_certificates/cert_123.pdf`)
 
 ---
 
@@ -385,22 +388,23 @@ GET /api/v1/school/students/{student_id}/
     "id": "uuid",
     "balance": 500000,
     "notes": "",
-    "updated_at": "2024-01-15T10:30:00Z"
-  },
-  "transactions_summary": {
-    "total_income": 2000000,
-    "total_expense": 0,
-    "net_balance": 2000000,
-    "transactions_count": 5
-  },
-  "payments_summary": {
-    "total_payments": 2000000,
-    "payments_count": 2,
-    "last_payment": {
-      "id": "uuid",
-      "amount": 1400000,
-      "date": "2024-01-15T10:00:00Z",
-      "period": "Oylik"
+    "updated_at": "2024-01-15T10:30:00Z",
+    "transactions_summary": {
+      "total_income": 2000000,
+      "total_expense": 0,
+      "net_balance": 2000000,
+      "transactions_count": 5
+    },
+    "payments_summary": {
+      "total_payments": 2000000,
+      "payments_count": 2,
+      "last_payment": {
+        "id": "uuid",
+        "amount": 1400000,
+        "date": "2024-01-15T10:00:00Z",
+        "period": "monthly",
+        "period_display": "Oylik"
+      }
     }
   },
   "created_at": "2024-01-01T00:00:00Z",
@@ -408,28 +412,102 @@ GET /api/v1/school/students/{student_id}/
 }
 ```
 
+**Fayllar:**
+
+- **birth_certificate**: Nisbiy URL (Django FileField)
+- **birth_certificate_url**: To'liq URL (request.build_absolute_uri orqali yaratiladi)
+  - Agar fayl bo'lmasa: `null`
+  - Agar fayl bo'lsa: To'liq URL (masalan: `https://api.example.com/media/students/birth_certificates/cert_123.pdf`)
+
 **Moliya Ma'lumotlari:**
 
-- **balance**: O'quvchi balansi (StudentBalance)
+Detail view da `balance` field to'liq moliyaviy ma'lumotlarni o'z ichiga oladi:
+
+- **balance**: O'quvchi balansi va moliyaviy statistikalar
   - `id`: Balans ID
   - `balance`: Joriy balans (so'm)
   - `notes`: Eslatmalar
   - `updated_at`: Oxirgi yangilanish vaqti
+  - `transactions_summary`: Tranzaksiyalar statistikasi
+    - `total_income`: Jami kirim (so'm) - INCOME va PAYMENT turlari
+    - `total_expense`: Jami chiqim (so'm) - EXPENSE, SALARY, REFUND turlari
+    - `net_balance`: Sof balans (kirim - chiqim)
+    - `transactions_count`: Tranzaksiyalar soni (faqat COMPLETED status)
+  - `payments_summary`: To'lovlar statistikasi
+    - `total_payments`: Jami to'lovlar (so'm)
+    - `payments_count`: To'lovlar soni
+    - `last_payment`: Oxirgi to'lov ma'lumotlari
+      - `id`: To'lov ID
+      - `amount`: To'lov summasi (final_amount)
+      - `date`: To'lov sanasi (ISO format)
+      - `period`: To'lov davri (monthly, yearly, va h.k.)
+      - `period_display`: To'lov davri ko'rinishi (Oylik, Yillik, va h.k.)
 
-- **transactions_summary**: Tranzaksiyalar statistikasi
-  - `total_income`: Jami kirim (so'm)
-  - `total_expense`: Jami chiqim (so'm)
-  - `net_balance`: Sof balans (kirim - chiqim)
-  - `transactions_count`: Tranzaksiyalar soni
+---
 
-- **payments_summary**: To'lovlar statistikasi
-  - `total_payments`: Jami to'lovlar (so'm)
-  - `payments_count`: To'lovlar soni
-  - `last_payment`: Oxirgi to'lov ma'lumotlari
-    - `id`: To'lov ID
-    - `amount`: To'lov summasi
-    - `date`: To'lov sanasi
-    - `period`: To'lov davri (Oylik, Yillik, va h.k.)
+### O'quvchini Yangilash
+
+```
+PATCH /api/v1/school/students/{student_id}/
+```
+
+**Permissions:** Super Admin, Branch Admin (o'z filialida)
+
+**Qo'llab-quvvatlanadigan formatlar:** `multipart/form-data` yoki `application/json`
+
+**Yangilanishi mumkin bo'lgan maydonlar:**
+- `phone_number` (string): Foydalanuvchi telefon raqami (unikal, normalize qilinadi)
+- `first_name`, `last_name`, `email`: Foydalanuvchi ma'lumotlari
+- `avatar` (file): Global profil rasmi (User -> Profile.avatar)
+- `middle_name`, `gender`, `date_of_birth`, `address`, `status`: O'quvchi profil maydonlari
+- `birth_certificate` (file): Tu'gilganlik guvohnomasi
+- `additional_fields` (object): Qo'shimcha ma'lumotlarni birlashtirib yangilash (merge)
+
+**Misol (multipart/form-data):**
+```
+Content-Type: multipart/form-data
+
+phone_number=+998901234567
+first_name=Ali
+last_name=Valiyev
+avatar=@/path/to/avatar.jpg
+middle_name=Olim o'g'li
+gender=male
+date_of_birth=2010-05-15
+address=Toshkent shahri
+status=active
+birth_certificate=@/path/to/birth_certificate.pdf
+additional_fields={"passport_number":"AB1234567","nationality":"UZ"}
+```
+
+**Misol (JSON):**
+```json
+{
+  "phone_number": "+998901234567",
+  "first_name": "Ali",
+  "last_name": "Valiyev",
+  "email": "ali@example.com",
+  "middle_name": "Olim o'g'li",
+  "gender": "male",
+  "date_of_birth": "2010-05-15",
+  "address": "Toshkent shahri",
+  "status": "active",
+  "additional_fields": {
+    "passport_number": "AB1234567",
+    "nationality": "UZ"
+  }
+}
+```
+
+**Response:** `200 OK` — yangilangan o'quvchi ma'lumotlari (avatar/birth_certificate uchun nisbiy va to'liq URL'lar):
+
+- `avatar`, `avatar_url`
+- `birth_certificate`, `birth_certificate_url`
+
+**Eslatmalar:**
+- `additional_fields` mavjud ma'lumotlar bilan birlashtiriladi (merge)
+- `avatar` va `birth_certificate` fayllari uchun multipart foydalaning
+- Telefon raqam unikal bo'lishi shart; agar boshqa foydalanuvchida mavjud bo'lsa xatolik qaytariladi
 
 ---
 
@@ -459,9 +537,10 @@ GET /api/v1/school/students/{student_id}/relatives/
     "address": "Toshkent shahri",
     "workplace": "Ish joyi",
     "position": "Lavozim",
-    "passport_number": "AB1234568",
-    "photo": null,
-    "is_primary_contact": true,
+      "passport_number": "AB1234568",
+      "photo": "/media/students/relatives/photo_123.jpg",
+      "photo_url": "https://api.example.com/media/students/relatives/photo_123.jpg",
+      "is_primary_contact": true,
     "is_guardian": true,
     "additional_info": {},
     "notes": "Eslatmalar",
@@ -562,7 +641,7 @@ PATCH /api/v1/school/students/{student_id}/documents/
 
 ```bash
 # Shaxsiy raqam bo'yicha
-GET /api/v1/school/students/?branch_id=uuid&search=ST-2024
+GET /api/v1/school/students/?branch_id=uuid&search=TAS-24
 
 # Ism bo'yicha
 GET /api/v1/school/students/?branch_id=uuid&search=Ali
@@ -647,7 +726,14 @@ GET /api/v1/school/students/?branch_id=uuid&page=2&page_size=10
 
 1. **Avtomatik Yaratiladigan Modellar:**
    - `StudentBalance` - `StudentProfile` yaratilganda avtomatik yaratiladi (signal orqali)
-   - `personal_number` - Avtomatik generatsiya qilinadi (masalan: ST-2024-0001)
+   - `personal_number` - Avtomatik generatsiya qilinadi
+     - **Format**: `{BRANCH_CODE}-{ACADEMIC_YEAR_SHORT}-{ORDER}`
+     - **Misol**: `TAS-24-0001`, `SAM-24-0001`
+     - **Tushuntirish**:
+       - `BRANCH_CODE`: Filial kodi (masalan: TAS, SAM, BUK) - agar yo'q bo'lsa, "ST" ishlatiladi
+       - `ACADEMIC_YEAR_SHORT`: Akademik yil qisqa versiyasi (masalan: "2024-2025" -> "24")
+       - `ORDER`: Tartib raqami (4 xonali, masalan: 0001, 0002)
+     - Har bir filial va akademik yil uchun alohida raqamlar
 
 2. **O'quvchi Yaratish Xususiyatlari:**
    - **Nested Serializer**: Yaqinlarni bir vaqtning o'zida yaratish mumkin

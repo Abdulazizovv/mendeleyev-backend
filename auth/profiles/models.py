@@ -209,17 +209,63 @@ class StudentProfile(BaseModel):
 	def generate_personal_number(self):
 		"""Shaxsiy raqam generatsiya qilish.
 		
-		Format: ST-YYYY-NNNN
-		Masalan: ST-2024-0001
+		Format: {BRANCH_CODE}-{ACADEMIC_YEAR_SHORT}-{ORDER}
+		Masalan: TAS-24-0001, SAM-24-0001
+		
+		Format tushuntirish:
+		- BRANCH_CODE: Filial kodi (masalan: TAS, SAM, BUK)
+		- ACADEMIC_YEAR_SHORT: Akademik yil qisqa versiyasi (masalan: "2024-2025" -> "24")
+		- ORDER: Tartib raqami (4 xonali, masalan: 0001, 0002)
 		"""
-		from django.utils import timezone
 		from django.db.models import Max
+		from apps.school.academic.models import AcademicYear
 		
-		year = timezone.now().year
-		prefix = f"ST-{year}-"
+		# Branch va akademik yilni olish
+		branch = self.user_branch.branch
 		
-		# Bu yilgi eng katta raqamni topish
+		# Filial kodini olish (agar yo'q bo'lsa, default "ST" ishlatamiz)
+		branch_code = branch.code if branch.code else "ST"
+		branch_code = branch_code.upper().strip()[:10]  # Maksimal 10 belgi, katta harflar
+		
+		# Joriy akademik yilni olish
+		academic_year = AcademicYear.objects.filter(
+			branch=branch,
+			is_active=True,
+			deleted_at__isnull=True
+		).first()
+		
+		if not academic_year:
+			# Agar joriy akademik yil bo'lmasa, eng so'nggi akademik yilni olish
+			academic_year = AcademicYear.objects.filter(
+				branch=branch,
+				deleted_at__isnull=True
+			).order_by('-start_date').first()
+		
+		if not academic_year:
+			# Agar akademik yil umuman bo'lmasa, joriy yilni ishlatamiz
+			from django.utils import timezone
+			current_year = timezone.now().year
+			academic_year_short = str(current_year)[-2:]  # Oxirgi 2 raqam
+		else:
+			# Akademik yil nomidan qisqa versiyani olish
+			# Masalan: "2024-2025" -> "24"
+			academic_year_name = academic_year.name
+			try:
+				# "2024-2025" formatidan birinchi yilni olish
+				first_year = int(academic_year_name.split('-')[0])
+				academic_year_short = str(first_year)[-2:]  # Oxirgi 2 raqam
+			except (ValueError, IndexError):
+				# Agar format noto'g'ri bo'lsa, joriy yilni ishlatamiz
+				from django.utils import timezone
+				current_year = timezone.now().year
+				academic_year_short = str(current_year)[-2:]
+		
+		# Prefix yaratish: {BRANCH_CODE}-{ACADEMIC_YEAR_SHORT}-
+		prefix = f"{branch_code}-{academic_year_short}-"
+		
+		# Bu filial va akademik yil uchun eng katta raqamni topish
 		last_number = StudentProfile.objects.filter(
+			user_branch__branch=branch,
 			personal_number__startswith=prefix,
 			deleted_at__isnull=True
 		).aggregate(
@@ -229,6 +275,7 @@ class StudentProfile(BaseModel):
 		if last_number:
 			# Oxirgi raqamdan keyingi raqamni olish
 			try:
+				# Format: BRANCH_CODE-YY-NNNN, oxirgi qismni olish
 				last_num = int(last_number.split('-')[-1])
 				next_num = last_num + 1
 			except (ValueError, IndexError):

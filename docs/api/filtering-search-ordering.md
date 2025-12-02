@@ -65,7 +65,7 @@ Barcha list API-lar quyidagi funksiyalarni qo'llab-quvvatlaydi:
 ```javascript
 // Qidiruv
 GET /api/v1/school/students/?search=Ali
-GET /api/v1/school/students/?personal_number=ST-2024-0001
+GET /api/v1/school/students/?personal_number=TAS-24-0001
 
 // Filter
 GET /api/v1/school/students/?gender=male

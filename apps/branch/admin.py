@@ -34,12 +34,12 @@ class BranchSettingsInline(admin.StackedInline):
 @admin.register(Branch)
 class BranchAdmin(admin.ModelAdmin):
 	list_display = (
-		'name', 'slug', 'type', 'status', 'phone_number', 'email', 'created_at', 'updated_at', 'deleted_badge'
+		'name', 'code', 'slug', 'type', 'status', 'phone_number', 'email', 'created_at', 'updated_at', 'deleted_badge'
 	)
 	list_filter = (
 		'type', 'status', 'created_at', 'updated_at'
 	)
-	search_fields = ('name', 'slug', 'address', 'phone_number', 'email')
+	search_fields = ('name', 'code', 'slug', 'address', 'phone_number', 'email')
 	ordering = ('-created_at',)
 	date_hierarchy = 'created_at'
 	list_per_page = 50
@@ -47,7 +47,7 @@ class BranchAdmin(admin.ModelAdmin):
 	prepopulated_fields = {"slug": ("name",)}
 	fieldsets = (
 		(_('Asosiy ma\'lumotlar'), {
-			'fields': ('name', 'slug', 'type', 'status')
+			'fields': ('name', 'code', 'slug', 'type', 'status')
 		}),
 		(_('Kontakt va manzil'), {
 			'fields': ('address', 'phone_number', 'email')

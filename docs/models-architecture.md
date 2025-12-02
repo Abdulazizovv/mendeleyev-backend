@@ -58,7 +58,7 @@ Bu hujjat loyihadagi barcha modellarni tushuntirish va ularni qanday tashkil qil
 - **Maqsad**: O'quvchi uchun to'liq profil
 - **Munosabat**: `user_branch` (OneToOne to BranchMembership)
 - **Asosiy fieldlar**:
-  - `personal_number` (unique, auto-generated: ST-YYYY-NNNN)
+  - `personal_number` (unique, auto-generated: {BRANCH_CODE}-{ACADEMIC_YEAR_SHORT}-{ORDER})
   - `middle_name`, `gender`, `date_of_birth`, `address`
   - `birth_certificate`, `additional_fields` (JSON)
 - **Munosabatlar**:
@@ -378,7 +378,7 @@ class StudentProfile(BaseModel):
     """Maktab o'quvchilari uchun to'liq profil.
     
     Maktab o'quvchilarining barcha ma'lumotlari shu modelda saqlanadi.
-    Shaxsiy raqam avtomatik generatsiya qilinadi (ST-YYYY-NNNN).
+    Shaxsiy raqam avtomatik generatsiya qilinadi ({BRANCH_CODE}-{ACADEMIC_YEAR_SHORT}-{ORDER}).
     """
 ```
 
