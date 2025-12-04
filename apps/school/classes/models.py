@@ -75,7 +75,14 @@ class Class(BaseModel):
     class Meta:
         verbose_name = 'Sinf'
         verbose_name_plural = 'Sinflar'
-        unique_together = [('branch', 'academic_year', 'name')]
+        # Use constraint instead of unique_together to support soft delete
+        constraints = [
+            models.UniqueConstraint(
+                fields=['branch', 'academic_year', 'name'],
+                condition=models.Q(deleted_at__isnull=True),
+                name='unique_class_when_active'
+            )
+        ]
         indexes = [
             models.Index(fields=['branch', 'academic_year', 'is_active']),
             models.Index(fields=['grade_level', 'section']),
@@ -163,7 +170,14 @@ class ClassStudent(BaseModel):
     class Meta:
         verbose_name = 'Sinf o\'quvchisi'
         verbose_name_plural = 'Sinf o\'quvchilari'
-        unique_together = [('class_obj', 'membership')]
+        # Use constraint instead of unique_together to support soft delete
+        constraints = [
+            models.UniqueConstraint(
+                fields=['class_obj', 'membership'],
+                condition=models.Q(deleted_at__isnull=True),
+                name='unique_class_student_when_active'
+            )
+        ]
         indexes = [
             models.Index(fields=['class_obj', 'is_active']),
             models.Index(fields=['membership', 'is_active']),

@@ -11,6 +11,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework import generics
 from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView, RetrieveUpdateAPIView
 from drf_spectacular.utils import extend_schema, OpenApiParameter
+from rest_framework.filters import SearchFilter, OrderingFilter
+from django_filters.rest_framework import DjangoFilterBackend
 
 from .models import Branch, BranchStatuses, BranchMembership, Role, BranchSettings
 from .serializers import (
@@ -310,6 +312,22 @@ class MembershipListView(ListCreateAPIView):
 	
 	permission_classes = [IsAuthenticated, HasBranchRole]
 	serializer_class = BranchMembershipDetailSerializer
+	filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+	# Filter by role, salary_type, is_active, user, branch, and ranges
+	filterset_fields = {
+		'role': ['exact', 'in'],
+		'salary_type': ['exact', 'in'],
+		'deleted_at': ['isnull'],
+		'user__id': ['exact', 'in'],
+		'user__phone_number': ['exact'],
+		'branch__id': ['exact'],
+		'balance': ['exact', 'lt', 'lte', 'gt', 'gte'],
+		'created_at': ['date', 'date__lt', 'date__lte', 'date__gt', 'date__gte'],
+		'updated_at': ['date', 'date__lt', 'date__lte', 'date__gt', 'date__gte'],
+	}
+	search_fields = ['user__first_name', 'user__last_name', 'user__phone_number', 'title']
+	ordering_fields = ['created_at', 'updated_at', 'role', 'salary_type', 'balance']
+	ordering = ['-created_at']
 	
 	def get_queryset(self):
 		"""Get memberships for the specified branch."""
@@ -350,6 +368,12 @@ class MembershipListView(ListCreateAPIView):
 		summary="List memberships for a branch",
 		parameters=[
 			OpenApiParameter('branch_id', type=str, location=OpenApiParameter.PATH),
+			OpenApiParameter('role', type=str, location=OpenApiParameter.QUERY, description='Filter by role (e.g., teacher, student, branch_admin)'),
+			OpenApiParameter('salary_type', type=str, location=OpenApiParameter.QUERY, description='Filter by salary type (monthly, hourly, per_lesson)'),
+			OpenApiParameter('user_id', type=str, location=OpenApiParameter.QUERY, description='Filter by user UUID'),
+			OpenApiParameter('is_active', type=bool, location=OpenApiParameter.QUERY, description='Filter active memberships (deleted_at is null)'),
+			OpenApiParameter('search', type=str, location=OpenApiParameter.QUERY, description='Search by user name or phone, and membership title'),
+			OpenApiParameter('ordering', type=str, location=OpenApiParameter.QUERY, description='Order by fields: created_at, updated_at, role, salary_type, balance'),
 		],
 	)
 	def get(self, request, *args, **kwargs):

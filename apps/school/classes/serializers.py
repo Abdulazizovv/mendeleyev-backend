@@ -120,7 +120,9 @@ class ClassStudentSerializer(serializers.ModelSerializer):
     student_name = serializers.SerializerMethodField()
     student_phone = serializers.CharField(source='membership.user.phone_number', read_only=True)
     student_id = serializers.UUIDField(source='membership.user.id', read_only=True)
+    student_user_id = serializers.UUIDField(source='membership.user.id', read_only=True)
     membership_id = serializers.UUIDField(source='membership.id', read_only=True)
+    student_balance = serializers.IntegerField(source='membership.balance', read_only=True)
     
     class Meta:
         model = ClassStudent
@@ -130,8 +132,10 @@ class ClassStudentSerializer(serializers.ModelSerializer):
             'membership',
             'membership_id',
             'student_id',
+            'student_user_id',
             'student_name',
             'student_phone',
+            'student_balance',
             'enrollment_date',
             'is_active',
             'notes',
@@ -172,6 +176,8 @@ class ClassStudentSerializer(serializers.ModelSerializer):
                 })
         
         return data
+
+    
 
 
 class ClassStudentCreateSerializer(serializers.ModelSerializer):
@@ -220,4 +226,37 @@ class ClassStudentCreateSerializer(serializers.ModelSerializer):
                 })
         
         return data
+
+
+class ClassStudentTransferSerializer(serializers.Serializer):
+    """O'quvchini bir sinfdan boshqasiga transfer qilish uchun serializer."""
+    target_class_id = serializers.UUIDField()
+    enrollment_date = serializers.DateField(required=False)
+    notes = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+    def validate(self, attrs):
+        from_class: Class = self.context.get('from_class')
+        class_student: ClassStudent = self.context.get('class_student')
+
+        try:
+            target_class = Class.objects.get(id=attrs['target_class_id'], deleted_at__isnull=True)
+        except Class.DoesNotExist:
+            raise serializers.ValidationError({'target_class_id': 'Target class not found or deleted'})
+
+        if target_class.branch_id != from_class.branch_id:
+            raise serializers.ValidationError({'target_class_id': 'Target class must be in the same branch'})
+
+        if target_class.id == from_class.id:
+            raise serializers.ValidationError({'target_class_id': 'Target class must be different'})
+
+        exists = ClassStudent.objects.filter(
+            class_obj_id=target_class.id,
+            membership_id=class_student.membership_id,
+            deleted_at__isnull=True,
+        ).exists()
+        if exists:
+            raise serializers.ValidationError({'target_class_id': 'Student already enrolled in target class'})
+
+        attrs['target_class'] = target_class
+        return attrs
 

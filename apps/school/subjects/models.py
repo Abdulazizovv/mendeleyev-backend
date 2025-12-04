@@ -135,7 +135,14 @@ class ClassSubject(BaseModel):
     class Meta:
         verbose_name = 'Sinf fani'
         verbose_name_plural = 'Sinf fanlari'
-        unique_together = [('class_obj', 'subject')]
+        # Use constraint instead of unique_together to support soft delete
+        constraints = [
+            models.UniqueConstraint(
+                fields=['class_obj', 'subject'],
+                condition=models.Q(deleted_at__isnull=True),
+                name='unique_class_subject_when_active'
+            )
+        ]
         indexes = [
             models.Index(fields=['class_obj', 'is_active']),
             models.Index(fields=['subject', 'is_active']),

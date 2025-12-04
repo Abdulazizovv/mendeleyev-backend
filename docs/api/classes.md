@@ -198,10 +198,11 @@ Sinfni soft-delete qiladi. O'chirilganda bog'liq obyektlar ham soft-delete qilin
 
 **Response 204:** No Content
 
-**Soft Delete Xulq-atvori:**
+**Soft Delete va Unique Constraints:**
 - O'chirilgan sinflar ro'yxatlarda va detallarda ko'rinmaydi
 - Sinf soft-delete qilinganda, bog'liq `ClassStudent` va `ClassSubject` yozuvlari ham ko'rinmaydi
-- Tiklash (restore) umumiy endpoint yo'q; admin paneldan qayta tiklash mumkin
+- **O'chirilgan sinf bilan bir xil nomdagi yangi sinf yaratish mumkin** — unique constraint faqat faol (`deleted_at is null`) yozuvlarga qo'llanadi
+- Misol: "1-A" sinfni yaratib, o'chirib, yana "1-A" yaratish mumkin (ular turli ID bilan yangi yozuvlar bo'ladi)
 
 ### 6. Sinf O'quvchilari Ro'yxati
 
@@ -229,8 +230,10 @@ Sinfdagi barcha o'quvchilarni qaytaradi.
       "membership": "567e8901-e89b-12d3-a456-426614174006",
       "membership_id": "567e8901-e89b-12d3-a456-426614174006",
       "student_id": "890e1234-e89b-12d3-a456-426614174007",
+      "student_user_id": "890e1234-e89b-12d3-a456-426614174007",
       "student_name": "Jane Smith",
       "student_phone": "+998901234568",
+      "student_balance": 0,
       "enrollment_date": "2024-09-01",
       "is_active": true,
       "notes": "",
@@ -272,6 +275,7 @@ O'quvchini sinfga qo'shadi.
   "student_id": "890e1234-e89b-12d3-a456-426614174007",
   "student_name": "Jane Smith",
   "student_phone": "+998901234568",
+  "student_balance": 0,
   "enrollment_date": "2024-09-01",
   "is_active": true,
   "notes": "Yangi o'quvchi",
@@ -292,6 +296,14 @@ O'quvchini sinfga qo'shadi.
 **GET** `/api/v1/school/classes/{class_id}/students/{student_id}/`
 
 O'quvchi-sinf biriktirish detallarini qaytaradi.
+
+**Muhim (best practice):** `{student_id}` — bu `membership_id`. Detail endpoint uchun har doim ro'yxatdagi `membership_id` ni ishlating.
+
+Qo'shimcha maydon: `student_user_id` foydalanuvchi ID (o'quvchi) bo'lib, ro'yxatda ma'lumot uchun qaytariladi. Detail uchun ishlatilmaydi.
+
+Detail endpoint uchun doimo ro'yxatdagi `membership_id` ni ishlating.
+
+**Eslatma:** Barcha response larda `student_balance` maydoni mavjud — o'quvchining joriy balansi (so'm, butun son). Bu moliyaviy operatsiyalarni kuzatish uchun foydali.
 
 **Response 200:** (O'quvchi ma'lumotlari)
 
@@ -318,6 +330,88 @@ O'quvchi-sinf biriktirish ma'lumotlarini yangilaydi.
 O'quvchini sinfdan olib tashlaydi (soft-delete).
 
 **Response 204:** No Content
+
+### 11. Mavjud O'quvchilar (Sinfga qo'shish uchun)
+
+### 12. O'quvchini Transfer Qilish
+
+**POST** `/api/v1/school/classes/{class_id}/students/{student_id}/transfer/`
+
+Berilgan sinfdagi o'quvchini (membership_id) boshqa sinfga ko'chiradi. Transfer faqat bir filial ichida amalga oshiriladi: eski biriktirish soft-delete qilinadi va yangi sinfga yangi biriktirish yaratiladi.
+
+Query params: yo'q.
+
+Body:
+```json
+{
+  "target_class_id": "789e1234-e89b-12d3-a456-426614174009",
+  "enrollment_date": "2024-09-15",
+  "notes": "Transfer: parallel sinfga"
+}
+```
+
+Cheklovlar:
+- `target_class_id` bir xil filialga tegishli bo'lishi kerak.
+- `target_class_id` joriy sinfdan farq qilishi kerak.
+- O'quvchi maqsadli sinfga allaqachon biriktirilgan bo'lmasligi kerak.
+
+**Response 201:** (Yangi sinfga biriktirish)
+```json
+{
+  "id": "234e5678-e89b-12d3-a456-426614174099",
+  "class_obj": "789e1234-e89b-12d3-a456-426614174009",
+  "membership": "567e8901-e89b-12d3-a456-426614174006",
+  "membership_id": "567e8901-e89b-12d3-a456-426614174006",
+  "student_id": "890e1234-e89b-12d3-a456-426614174007",
+  "student_name": "Jane Smith",
+  "student_phone": "+998901234568",
+  "student_balance": 0,
+  "enrollment_date": "2024-09-15",
+  "is_active": true,
+  "notes": "Transfer: parallel sinfga",
+  "created_at": "2024-09-15T10:00:00Z",
+  "updated_at": "2024-09-15T10:00:00Z"
+}
+```
+
+Xatoliklar (400):
+- `{"target_class_id": "Target class must be in the same branch"}`
+- `{"target_class_id": "Target class must be different"}`
+- `{"target_class_id": "Student already enrolled in target class"}`
+
+**GET** `/api/v1/school/branches/{branch_id}/classes/{class_id}/available-students/`
+
+Berilgan filial va sinf uchun hali sinfga kiritilmagan o'quvchilar ro'yxati (filialdagi `student` roli bo'lgan a'zoliklar ichidan).
+
+**Query Parameters:**
+- `page` — Sahifa raqami (default: 1)
+- `page_size` — Sahifa hajmi (default: 20, max: 100)
+- `search` — Qidiruv (`user__first_name`, `user__last_name`, `user__phone_number`, `title`)
+- `ordering` — Tartiblash (`user__first_name`, `user__last_name`, `created_at`, prefiks `-` kamayish uchun)
+
+**Response 200:** (Paginatsiya qilingan natija)
+```json
+{
+  "count": 2,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": "567e8901-e89b-12d3-a456-426614174006",
+      "user_phone": "+998900000012",
+      "user_name": "Ali Bek",
+      "branch": "456e7890-e89b-12d3-a456-426614174001",
+      "branch_name": "Alpha School",
+      "role": "student",
+      "title": "",
+      "salary_type": "monthly",
+      "balance": 0,
+      "created_at": "2024-09-01T10:00:00Z",
+      "updated_at": "2024-09-01T10:00:00Z"
+    }
+  ]
+}
+```
 
 ## Error Responses
 
