@@ -31,6 +31,7 @@ urlpatterns = [
     path('api/v1/auth/', include('auth.users.urls')),
     path('api/v1/profile/', include('auth.profiles.urls')),
     path('api/v1/branches/', include('apps.branch.urls')),
+    path('api/v1/hr/', include('apps.hr.urls')),
     path('api/v1/school/', include('apps.school.academic.urls')),
     path('api/v1/school/', include('apps.school.classes.urls')),
     path('api/v1/school/', include('apps.school.subjects.urls')),

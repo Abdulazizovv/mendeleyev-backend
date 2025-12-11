@@ -73,6 +73,7 @@ INSTALLED_APPS = [
     "apps.botapp",
     "apps.common",
     "apps.branch",
+    "apps.hr",
     "apps.school",
     "apps.school.academic",
     "apps.school.classes",
