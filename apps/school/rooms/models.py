@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 from django.conf import settings
 from apps.common.models import BaseModel
 from apps.branch.models import Branch
@@ -58,7 +59,13 @@ class Building(BaseModel):
     class Meta:
         verbose_name = 'Bino'
         verbose_name_plural = 'Binolar'
-        unique_together = [('branch', 'name')]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['branch', 'name'],
+                condition=Q(deleted_at__isnull=True),
+                name='uniq_building_branch_name_active'
+            ),
+        ]
         indexes = [
             models.Index(fields=['branch', 'is_active']),
         ]
@@ -66,6 +73,20 @@ class Building(BaseModel):
     
     def __str__(self):
         return f"{self.name} @ {self.branch.name}"
+
+    def delete(self, using=None, keep_parents=False, hard=False):
+        """Soft-delete paytida binoni nofaol qilib qo'yish."""
+        if not hard and self.is_active:
+            type(self).objects.filter(pk=self.pk).update(is_active=False)
+            self.is_active = False
+        return super().delete(using=using, keep_parents=keep_parents, hard=hard)
+
+    def restore(self):
+        super().restore()
+        if not self.is_active:
+            self.is_active = True
+            self.save(update_fields=['is_active'])
+        return self
 
 
 class Room(BaseModel):
@@ -108,10 +129,10 @@ class Room(BaseModel):
         help_text='Xonada necha kishi sig\'adi (o\'quvchilar soni)'
     )
     equipment = models.JSONField(
-        default=dict,
+        default=list,
         blank=True,
         verbose_name='Jihozlar',
-        help_text='Xonadagi jihozlar JSON formatida. Masalan: {"projector": true, "computers": 20}'
+        help_text='Jihozlar ro\'yxati: [{"name": "projector", "quantity": 1, "unit": "pcs"}]'
     )
     is_active = models.BooleanField(
         default=True,
@@ -122,7 +143,13 @@ class Room(BaseModel):
     class Meta:
         verbose_name = 'Xona'
         verbose_name_plural = 'Xonalar'
-        unique_together = [('branch', 'building', 'name')]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['branch', 'building', 'name'],
+                condition=Q(deleted_at__isnull=True),
+                name='uniq_room_branch_building_name_active'
+            ),
+        ]
         indexes = [
             models.Index(fields=['branch', 'is_active']),
             models.Index(fields=['building', 'is_active']),
@@ -144,4 +171,18 @@ class Room(BaseModel):
             raise ValueError(f"Floor cannot be greater than building floors ({self.building.floors})")
         
         super().save(*args, **kwargs)
+
+    def delete(self, using=None, keep_parents=False, hard=False):
+        """Soft-delete paytida xonani nofaol qilish."""
+        if not hard and self.is_active:
+            type(self).objects.filter(pk=self.pk).update(is_active=False)
+            self.is_active = False
+        return super().delete(using=using, keep_parents=keep_parents, hard=hard)
+
+    def restore(self):
+        super().restore()
+        if not self.is_active:
+            self.is_active = True
+            self.save(update_fields=['is_active'])
+        return self
 

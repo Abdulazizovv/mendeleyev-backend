@@ -2,6 +2,37 @@ from rest_framework import serializers
 from .models import Building, Room, RoomType
 
 
+def normalize_equipment_items(equipment):
+    normalized = []
+    seen = set()
+    for item in equipment:
+        name = item['name']
+        key = name.lower()
+        if key in seen:
+            raise serializers.ValidationError({'equipment': f"'{name}' nomli jihoz takrorlangan."})
+        seen.add(key)
+        normalized.append({
+            'name': name,
+            'quantity': item.get('quantity', 1),
+            'unit': item.get('unit') or 'pcs',
+        })
+    return normalized
+class EquipmentItemSerializer(serializers.Serializer):
+    """Xona jihozlari elementi."""
+
+    name = serializers.CharField(max_length=100)
+    quantity = serializers.IntegerField(min_value=0, default=1)
+    unit = serializers.CharField(max_length=20, allow_blank=True, required=False)
+
+    def validate(self, attrs):
+        attrs['name'] = attrs['name'].strip()
+        if not attrs['name']:
+            raise serializers.ValidationError({'name': 'Jihoz nomi bo\'sh bo\'lishi mumkin emas.'})
+        attrs['unit'] = (attrs.get('unit') or 'pcs').strip() or 'pcs'
+        return attrs
+
+
+
 class BuildingSerializer(serializers.ModelSerializer):
     """Bino serializer."""
     
@@ -42,13 +73,15 @@ class BuildingCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Building
         fields = [
-            'branch',
             'name',
             'address',
             'floors',
             'description',
             'is_active',
         ]
+        extra_kwargs = {
+            'name': {'required': True},
+        }
 
 
 class RoomSerializer(serializers.ModelSerializer):
@@ -57,6 +90,7 @@ class RoomSerializer(serializers.ModelSerializer):
     branch_name = serializers.CharField(source='branch.name', read_only=True)
     building_name = serializers.CharField(source='building.name', read_only=True)
     room_type_display = serializers.CharField(source='get_room_type_display', read_only=True)
+    equipment = EquipmentItemSerializer(many=True, required=False)
     
     class Meta:
         model = Room
@@ -100,16 +134,19 @@ class RoomSerializer(serializers.ModelSerializer):
                     'floor': f'Qavat binoning qavatlar sonidan ({building.floors}) oshib ketmasligi kerak.'
                 })
         
+        equipment = data.get('equipment')
+        if equipment is not None:
+            data['equipment'] = normalize_equipment_items(equipment)
         return data
 
 
 class RoomCreateSerializer(serializers.ModelSerializer):
     """Xona yaratish uchun serializer."""
+    equipment = EquipmentItemSerializer(many=True, required=False)
     
     class Meta:
         model = Room
         fields = [
-            'branch',
             'building',
             'name',
             'room_type',
@@ -121,7 +158,7 @@ class RoomCreateSerializer(serializers.ModelSerializer):
     
     def validate(self, data):
         """Validate room data."""
-        branch = data.get('branch')
+        branch = self.context.get('branch')
         building = data.get('building')
         floor = data.get('floor')
         
@@ -139,5 +176,8 @@ class RoomCreateSerializer(serializers.ModelSerializer):
                     'floor': f'Qavat binoning qavatlar sonidan ({building.floors}) oshib ketmasligi kerak.'
                 })
         
+        equipment = data.get('equipment')
+        if equipment is not None:
+            data['equipment'] = normalize_equipment_items(equipment)
         return data
 

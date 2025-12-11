@@ -36,7 +36,7 @@ Xonalar quyidagi maydonlarga ega:
   - `other` — Boshqa
 - `floor` (Integer) — Qavat
 - `capacity` (Integer) — Sig'imi (o'quvchilar soni)
-- `equipment` (JSON, optional) — Jihozlar (masalan: `{"projector": true, "computers": 20}`)
+- `equipment` (JSON list, optional) — Jihozlar ro'yxati (`[{"name": "projector", "quantity": 1, "unit": "pcs"}]`)
 - `is_active` (Boolean) — Faol xona
 - Audit trail: `created_at`, `updated_at`, `created_by`, `updated_by`
 
@@ -89,6 +89,8 @@ Filialdagi barcha binolarni qaytaradi.
 
 Yangi bino yaratadi.
 
+**Eslatma:** `branch_id` URL orqali beriladi, body da `branch` maydoni talab qilinmaydi.
+
 **Request Body:**
 ```json
 {
@@ -103,6 +105,10 @@ Yangi bino yaratadi.
 **Validation Rules:**
 - `name` tanlangan filialda unique bo'lishi kerak
 - `floors` 1 dan katta bo'lishi kerak
+
+**Possible Errors:**
+- `{"name": ["Bino nomi allaqachon mavjud."]}` — shu filialda xuddi shu nomli faol bino bor.
+- `{"floors": ["Qavatlar soni musbat bo'lishi kerak."]}` — foydalanuvchi 0 yoki manfiy qiymat yuborganda.
 
 **Response 201:**
 ```json
@@ -161,6 +167,10 @@ Binoni soft-delete qiladi (xonalar saqlanadi).
 
 **Response 204:** No Content
 
+**Eslatma:** Soft-delete qilingan binolar ro'yxatlarda ko'rinmaydi va detail endpoint 404 qaytaradi. O'chirilganda `is_active` avtomatik ravishda `false` ga o'zgaradi.
+
+**Kengaytma:** O'chirilgan bino bilan bir xil nomdagi yangi bino yaratish mumkin. Unique constraint faqat faol (deleted_at is null) yozuvlarga qo'llanadi.
+
 ### 6. Xonalar Ro'yxati
 
 **GET** `/api/v1/school/branches/{branch_id}/rooms/`
@@ -186,11 +196,11 @@ Filialdagi barcha xonalarni qaytaradi.
     "room_type_display": "Dars xonasi",
     "floor": 1,
     "capacity": 30,
-    "equipment": {
-      "projector": true,
-      "computers": 0,
-      "whiteboard": true
-    },
+    "equipment": [
+      {"name": "projector", "quantity": 1, "unit": "pcs"},
+      {"name": "computer", "quantity": 20, "unit": "pcs"},
+      {"name": "whiteboard", "quantity": 1, "unit": "pcs"}
+    ],
     "is_active": true,
     "created_at": "2024-09-01T10:00:00Z",
     "updated_at": "2024-09-01T10:00:00Z"
@@ -204,6 +214,8 @@ Filialdagi barcha xonalarni qaytaradi.
 
 Yangi xona yaratadi.
 
+**Eslatma:** `branch_id` URL orqali aniqlanadi. Body da `branch` maydoni kerak emas.
+
 **Request Body:**
 ```json
 {
@@ -212,11 +224,10 @@ Yangi xona yaratadi.
   "room_type": "classroom",
   "floor": 1,
   "capacity": 30,
-  "equipment": {
-    "projector": true,
-    "computers": 0,
-    "whiteboard": true
-  },
+  "equipment": [
+    {"name": "projector", "quantity": 1, "unit": "pcs"},
+    {"name": "computer", "quantity": 20, "unit": "pcs"}
+  ],
   "is_active": true
 }
 ```
@@ -226,6 +237,14 @@ Yangi xona yaratadi.
 - `floor` binoning qavatlar sonidan oshib ketmasligi kerak
 - `name` tanlangan binoda unique bo'lishi kerak
 - `capacity` 1 dan katta bo'lishi kerak
+- `equipment` ro'yxati `{name, quantity, unit}` obyektlaridan iborat bo'lishi va nomlar takrorlanmasligi kerak
+- `building` ushbu URL dagi filialga tegishli bo'lishi kerak (server avtomatik tekshiradi)
+
+**Possible Errors:**
+- `{"building": ["Bino tanlangan filialga tegishli emas."]}` — boshqa filialga oid bino ID yuborilganda.
+- `{"floor": ["Qavat binoning qavatlar sonidan (3) oshib ketmasligi kerak."]}` — xona qavati binodan yuqori.
+- `{"name": ["Bu nomli xona shu binoda mavjud."]}` — faol xona bilan nom to'qnashuvi.
+- `{"equipment": "'projector' nomli jihoz takrorlangan."}` — bir xil nomdagi jihoz bir necha bor kiritilganda.
 
 **Response 201:**
 ```json
@@ -240,11 +259,11 @@ Yangi xona yaratadi.
   "room_type_display": "Dars xonasi",
   "floor": 1,
   "capacity": 30,
-  "equipment": {
-    "projector": true,
-    "computers": 0,
-    "whiteboard": true
-  },
+  "equipment": [
+    {"name": "projector", "quantity": 1, "unit": "pcs"},
+    {"name": "computer", "quantity": 20, "unit": "pcs"},
+    {"name": "whiteboard", "quantity": 1, "unit": "pcs"}
+  ],
   "is_active": true,
   "created_at": "2024-09-01T10:00:00Z",
   "updated_at": "2024-09-01T10:00:00Z"
@@ -296,6 +315,10 @@ Xona ma'lumotlarini yangilaydi.
 Xonani soft-delete qiladi.
 
 **Response 204:** No Content
+
+**Eslatma:** Soft-delete qilingan xonalar ro'yxatlardan yashiriladi va detail endpoint 404 qaytaradi. O'chirilganda `is_active=false` bo'ladi.
+
+**Kengaytma:** O'chirilgan xona bilan bir xil nomdagi yangi xona (shu bino va filialda) yaratish mumkin, chunki unique constraint faqat faol yozuvlarga qo'llanadi.
 
 ## Error Responses
 
@@ -366,11 +389,10 @@ const createRoom = async (buildingId) => {
       room_type: 'classroom',
       floor: 1,
       capacity: 30,
-      equipment: {
-        projector: true,
-        computers: 0,
-        whiteboard: true
-      },
+      equipment: [
+        { name: 'projector', quantity: 1, unit: 'pcs' },
+        { name: 'computer', quantity: 20, unit: 'pcs' }
+      ],
       is_active: true
     })
   });
@@ -464,7 +486,7 @@ Xona turlari quyidagilar:
    - Bino va xona bir xil filialga tegishli bo'lishi kerak
 
 5. **Equipment Field**:
-   - Equipment JSON formatida saqlanadi
-   - Har qanday struktura bo'lishi mumkin (masalan: `{"projector": true, "computers": 20}`)
-   - Frontend tomonidan to'liq boshqariladi
+  - Equipment strukturalangan ro'yxat shaklida saqlanadi (`[{"name": "projector", "quantity": 1, "unit": "pcs"}]`)
+  - Jihoz nomlari takrorlanmasligi kerak, `quantity` butun son, `unit` default `pcs`
+  - Frontend ushbu formatda yuborishi va qabul qilishi kerak
 

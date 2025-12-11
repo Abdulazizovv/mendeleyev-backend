@@ -35,7 +35,7 @@ class BuildingListView(AuditTrailMixin, generics.ListCreateAPIView):
         branch_id = self.kwargs.get('branch_id')
         branch = get_object_or_404(Branch, id=branch_id)
         
-        queryset = Building.objects.filter(branch=branch).prefetch_related('rooms')
+        queryset = Building.objects.filter(branch=branch, deleted_at__isnull=True).prefetch_related('rooms')
         
         return queryset
     
@@ -43,6 +43,14 @@ class BuildingListView(AuditTrailMixin, generics.ListCreateAPIView):
         if self.request.method == 'POST':
             return BuildingCreateSerializer
         return BuildingSerializer
+    
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        branch_id = self.kwargs.get('branch_id')
+        if branch_id:
+            branch = get_object_or_404(Branch, id=branch_id)
+            context['branch'] = branch
+        return context
     
     def perform_create(self, serializer):
         branch_id = self.kwargs.get('branch_id')
@@ -79,7 +87,7 @@ class BuildingDetailView(AuditTrailMixin, generics.RetrieveUpdateDestroyAPIView)
     def get_queryset(self):
         branch_id = self.kwargs.get('branch_id')
         branch = get_object_or_404(Branch, id=branch_id)
-        return Building.objects.filter(branch=branch).prefetch_related('rooms')
+        return Building.objects.filter(branch=branch, deleted_at__isnull=True).prefetch_related('rooms')
     
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
@@ -119,7 +127,7 @@ class RoomListView(AuditTrailMixin, generics.ListCreateAPIView):
         branch_id = self.kwargs.get('branch_id')
         branch = get_object_or_404(Branch, id=branch_id)
         
-        queryset = Room.objects.filter(branch=branch).select_related('building')
+        queryset = Room.objects.filter(branch=branch, deleted_at__isnull=True).select_related('building')
         
         return queryset
     
@@ -127,6 +135,14 @@ class RoomListView(AuditTrailMixin, generics.ListCreateAPIView):
         if self.request.method == 'POST':
             return RoomCreateSerializer
         return RoomSerializer
+    
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        branch_id = self.kwargs.get('branch_id')
+        if branch_id:
+            branch = get_object_or_404(Branch, id=branch_id)
+            context['branch'] = branch
+        return context
     
     def perform_create(self, serializer):
         branch_id = self.kwargs.get('branch_id')
@@ -165,7 +181,7 @@ class RoomDetailView(AuditTrailMixin, generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         branch_id = self.kwargs.get('branch_id')
         branch = get_object_or_404(Branch, id=branch_id)
-        return Room.objects.filter(branch=branch).select_related('building')
+        return Room.objects.filter(branch=branch, deleted_at__isnull=True).select_related('building')
     
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
