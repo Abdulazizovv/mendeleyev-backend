@@ -46,35 +46,19 @@ The staff management system is built on the unified `BranchMembership` model, el
 
 ## API Endpoints
 
-**Base URL:** `/api/branch/staff/`
-
-**Authentication:** Bearer token kerak (Authorization: Bearer YOUR_TOKEN)
-
-**Permissions:** `IsAuthenticated` + `HasBranchRole` kerak barcha endpoint'larda
-
-**Important Field Names:**
-- `role_ref` - Role ForeignKey (UUID)
-- `role` - Legacy CharField (for backward compatibility)
-- `monthly_salary` - Oylik maosh (integer)
-- `salary` - Computed field from `get_salary()` method
+Base URL: `/api/branch/staff/`
 
 ### 1. List Staff
 
 **Endpoint**: `GET /api/branch/staff/`
 
-**Description**: Barcha xodimlar ro'yxatini olish. Pagination, filtering, search, ordering qo'llab-quvvatlanadi.
-
 **Query Parameters**:
-| Parameter | Type | Description | Example |
-|-----------|------|-------------|---------|
-| `branch` | UUID | Filial ID bo'yicha filter | `?branch=uuid-here` |
-| `role_ref` | UUID | Lavozim ID bo'yicha filter (Role model) | `?role_ref=uuid-here` |
-| `employment_type` | string | Ish turi: full_time, part_time, contract, intern | `?employment_type=full_time` |
-| `status` | string | active yoki terminated | `?status=active` |
-| `search` | string | Ism, telefon, pasport bo'yicha qidirish | `?search=Ali` |
-| `ordering` | string | Tartiblash: hire_date, monthly_salary, balance, created_at | `?ordering=-hire_date` |
-| `page` | number | Sahifa raqami | `?page=2` |
-| `page_size` | number | Har sahifada nechta | `?page_size=20` |
+- `branch` (UUID): Filter by branch
+- `role` (UUID): Filter by role/position
+- `employment_type` (string): full_time, part_time, contract, intern
+- `status` (string): active, terminated
+- `search` (string): Search by name, phone, passport
+- `ordering` (string): Sort by hire_date, salary, balance, created_at
 
 **Response**: 200 OK
 ```json
@@ -96,15 +80,18 @@ The staff management system is built on the unified `BranchMembership` model, el
         "id": "uuid",
         "name": "Toshkent filiali"
       },
-      "role_ref": "uuid",
-      "role_ref_name": "O'qituvchi",
-      "role_display": "O'qituvchi",
+      "role": {
+        "id": "uuid",
+        "name": "O'qituvchi",
+        "code": "teacher",
+        "salary_range_min": "3000000.00",
+        "salary_range_max": "5000000.00"
+      },
       "hire_date": "2024-01-15",
       "termination_date": null,
       "employment_type": "full_time",
-      "monthly_salary": 4000000,
-      "salary": 4000000,
-      "balance": 1500000,
+      "salary": "4000000.00",
+      "balance": "1500000.00",
       "passport_serial": "AB",
       "passport_number": "1234567",
       "address": "Toshkent sh., Chilonzor tumani",
@@ -146,10 +133,10 @@ GET /api/branch/staff/?ordering=-hire_date
 {
   "user": "uuid",
   "branch": "uuid",
-  "role_ref": "uuid",
+  "role": "uuid",
   "hire_date": "2024-01-15",
   "employment_type": "full_time",
-  "monthly_salary": 4000000,
+  "salary": "4000000.00",
   "passport_serial": "AB",
   "passport_number": "1234567",
   "address": "Toshkent sh., Chilonzor tumani",
@@ -159,27 +146,20 @@ GET /api/branch/staff/?ordering=-hire_date
 ```
 
 **Required Fields**:
-- `user` (UUID) - User ID
-- `branch` (UUID) - Branch ID  
-- `role_ref` (UUID) - Role ID
-- `hire_date` (date) - YYYY-MM-DD
-- `employment_type` (string) - full_time, part_time, contract, intern
-- `monthly_salary` (integer) - Oylik maosh (so'm)
+- user, branch, role, hire_date, employment_type, salary
 
 **Response**: 201 Created
 ```json
 {
   "id": "uuid",
-  "user": "uuid",
-  "branch": "uuid",
-  "role_ref": "uuid",
-  "role_ref_name": "O'qituvchi",
+  "user": {...},
+  "branch": {...},
+  "role": {...},
   "hire_date": "2024-01-15",
   "employment_type": "full_time",
-  "monthly_salary": 4000000,
-  "salary": 4000000,
-  "balance": 0,
-  "is_active_employment": true
+  "salary": "4000000.00",
+  "balance": "0.00",
+  ...
 }
 ```
 

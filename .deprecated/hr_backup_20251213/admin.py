@@ -34,11 +34,11 @@ class StaffRoleAdmin(admin.ModelAdmin):
     @admin.display(description=_('Maosh diapazoni'))
     def salary_range_display(self, obj):
         if obj.salary_range_min and obj.salary_range_max:
-            return f"{obj.salary_range_min:,} - {obj.salary_range_max:,} so'm"
+            return f"{obj.salary_range_min:_} - {obj.salary_range_max:_} so'm"
         elif obj.salary_range_min:
-            return f"Min: {obj.salary_range_min:,} so'm"
+            return f"Min: {obj.salary_range_min:_} so'm"
         elif obj.salary_range_max:
-            return f"Max: {obj.salary_range_max:,} so'm"
+            return f"Max: {obj.salary_range_max:_} so'm"
         return "-"
     
     @admin.display(description=_('Xodimlar soni'))
@@ -96,15 +96,15 @@ class StaffProfileAdmin(admin.ModelAdmin):
     
     @admin.display(description=_('Asosiy maosh'))
     def base_salary_display(self, obj):
-        return format_html('{:,} so\'m', obj.base_salary)
+        return f"{obj.base_salary:_} so'm"
     
     @admin.display(description=_('Balans'))
     def balance_display(self, obj):
         color = '#090' if obj.current_balance >= 0 else '#d9534f'
         return format_html(
-            '<span style="color:{};">{:,} so\'m</span>',
+            '<span style="color:{};">{} so\'m</span>',
             color,
-            obj.current_balance
+            f"{obj.current_balance:_}"
         )
 
 
@@ -150,7 +150,7 @@ class BalanceTransactionAdmin(admin.ModelAdmin):
     
     @admin.display(description=_('Summa'))
     def amount_display(self, obj):
-        return format_html('{:,} so\'m', obj.amount)
+        return f"{obj.amount:_} so'm"
     
     @admin.display(description=_('Balans o\'zgarishi'))
     def balance_change(self, obj):
@@ -158,10 +158,10 @@ class BalanceTransactionAdmin(admin.ModelAdmin):
         color = '#090' if change >= 0 else '#d9534f'
         sign = '+' if change >= 0 else ''
         return format_html(
-            '<span style="color:{};">{}{:,}</span>',
+            '<span style="color:{};">{}{}</span>',
             color,
             sign,
-            change
+            f"{change:_}"
         )
 
 

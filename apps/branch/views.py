@@ -160,7 +160,7 @@ class RoleListView(ListCreateAPIView):
 			# SuperAdmin can see all roles (branch-specific + global)
 			return Role.objects.filter(
 				models.Q(branch=branch) | models.Q(branch=None)
-			).prefetch_related('memberships')
+			).prefetch_related('role_memberships')
 		else:
 			# BranchAdmin can only see roles for their branch (branch-specific + global)
 			membership = BranchMembership.objects.filter(
@@ -171,7 +171,7 @@ class RoleListView(ListCreateAPIView):
 			if membership:
 				return Role.objects.filter(
 					models.Q(branch=branch) | models.Q(branch=None)
-				).prefetch_related('memberships')
+				).prefetch_related('role_memberships')
 			return Role.objects.none()
 	
 	def get_serializer_class(self):
@@ -244,7 +244,7 @@ class RoleDetailView(RetrieveUpdateDestroyAPIView):
 		if user.is_superuser:
 			return Role.objects.filter(
 				models.Q(branch=branch) | models.Q(branch=None)
-			).prefetch_related('memberships')
+			).prefetch_related('role_memberships')
 		else:
 			membership = BranchMembership.objects.filter(
 				user=user,
@@ -254,7 +254,7 @@ class RoleDetailView(RetrieveUpdateDestroyAPIView):
 			if membership:
 				return Role.objects.filter(
 					models.Q(branch=branch) | models.Q(branch=None)
-				).prefetch_related('memberships')
+				).prefetch_related('role_memberships')
 			return Role.objects.none()
 	
 	def perform_update(self, serializer):
@@ -523,3 +523,204 @@ class BranchSettingsView(AuditTrailMixin, RetrieveUpdateAPIView):
 	)
 	def patch(self, request, *args, **kwargs):
 		return super().patch(request, *args, **kwargs)
+
+
+# ============================================================================
+# STAFF MANAGEMENT VIEWS
+# ============================================================================
+
+from rest_framework import viewsets
+from rest_framework.decorators import action
+from django.db.models import Q, Count, Avg
+from .serializers import (
+	StaffSerializer,
+	StaffCreateSerializer,
+	StaffUpdateSerializer,
+	BalanceTransactionSerializer,
+	SalaryPaymentSerializer,
+	StaffStatsSerializer,
+)
+from .services import BalanceService
+
+
+class StaffViewSet(viewsets.ModelViewSet):
+	"""
+	ViewSet for staff management via BranchMembership model.
+	
+	Endpoints:
+	- GET /staff/ - List all staff
+	- POST /staff/ - Create new staff member
+	- GET /staff/{id}/ - Get staff details
+	- PATCH /staff/{id}/ - Update staff
+	- DELETE /staff/{id}/ - Soft delete staff
+	- GET /staff/stats/ - Get staff statistics
+	- POST /staff/{id}/add_balance/ - Add balance transaction
+	- POST /staff/{id}/pay_salary/ - Record salary payment
+	"""
+	
+	queryset = BranchMembership.objects.select_related('user', 'role_ref', 'branch').all()
+	permission_classes = [IsAuthenticated, HasBranchRole]
+	filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+	filterset_fields = ['branch', 'role_ref', 'employment_type']
+	search_fields = ['user__first_name', 'user__last_name', 'user__phone', 'passport_serial', 'passport_number']
+	ordering_fields = ['hire_date', 'monthly_salary', 'balance', 'created_at']
+	ordering = ['-hire_date']
+	
+	def get_serializer_class(self):
+		if self.action == 'create':
+			return StaffCreateSerializer
+		elif self.action in ['update', 'partial_update']:
+			return StaffUpdateSerializer
+		return StaffSerializer
+	
+	def get_queryset(self):
+		"""Filter staff by branch access and active status."""
+		qs = super().get_queryset()
+		
+		# Filter by branch if specified
+		branch_id = self.request.query_params.get('branch')
+		if branch_id:
+			qs = qs.filter(branch_id=branch_id)
+		
+		# Filter by employment status
+		status = self.request.query_params.get('status')
+		if status == 'active':
+			qs = qs.filter(termination_date__isnull=True)
+		elif status == 'terminated':
+			qs = qs.filter(termination_date__isnull=False)
+		
+		return qs.filter(deleted_at__isnull=True)
+	
+	@extend_schema(
+		summary="Xodimlar ro'yxati",
+		parameters=[
+			OpenApiParameter('branch', type=str, description='Filial ID'),
+			OpenApiParameter('role', type=str, description='Lavozim ID'),
+			OpenApiParameter('employment_type', type=str, description='Ish turi'),
+			OpenApiParameter('status', type=str, enum=['active', 'terminated'], description='Xodim holati'),
+			OpenApiParameter('search', type=str, description='Qidiruv (ism, telefon, pasport)'),
+		],
+	)
+	def list(self, request, *args, **kwargs):
+		return super().list(request, *args, **kwargs)
+	
+	@extend_schema(
+		summary="Yangi xodim qo'shish",
+		request=StaffCreateSerializer,
+		responses={201: StaffSerializer},
+	)
+	def create(self, request, *args, **kwargs):
+		return super().create(request, *args, **kwargs)
+	
+	@extend_schema(
+		summary="Xodim ma'lumotlari",
+		responses={200: StaffSerializer},
+	)
+	def retrieve(self, request, *args, **kwargs):
+		return super().retrieve(request, *args, **kwargs)
+	
+	@extend_schema(
+		summary="Xodim ma'lumotlarini yangilash",
+		request=StaffUpdateSerializer,
+		responses={200: StaffSerializer},
+	)
+	def partial_update(self, request, *args, **kwargs):
+		return super().partial_update(request, *args, **kwargs)
+	
+	@extend_schema(
+		summary="Xodimni o'chirish (soft delete)",
+		responses={204: None},
+	)
+	def destroy(self, request, *args, **kwargs):
+		instance = self.get_object()
+		instance.soft_delete()
+		return Response(status=status.HTTP_204_NO_CONTENT)
+	
+	@extend_schema(
+		summary="Xodimlar statistikasi",
+		responses={200: StaffStatsSerializer},
+	)
+	@action(detail=False, methods=['get'])
+	def stats(self, request):
+		"""Get staff statistics."""
+		branch_id = request.query_params.get('branch')
+		qs = self.get_queryset()
+		
+		if branch_id:
+			qs = qs.filter(branch_id=branch_id)
+		
+		total = qs.count()
+		active = qs.filter(termination_date__isnull=True).count()
+		terminated = qs.filter(termination_date__isnull=False).count()
+		
+		by_employment_type = qs.filter(termination_date__isnull=True).values(
+			'employment_type'
+		).annotate(count=Count('id'))
+		
+		by_role = qs.filter(termination_date__isnull=True).values(
+			'role_ref__name'
+		).annotate(count=Count('id'))
+		
+		avg_salary = qs.filter(termination_date__isnull=True).aggregate(
+			avg=Avg('monthly_salary')
+		)['avg'] or 0
+		
+		data = {
+			'total_staff': total,
+			'active_staff': active,
+			'terminated_staff': terminated,
+			'by_employment_type': list(by_employment_type),
+			'by_role': list(by_role),
+			'average_salary': round(float(avg_salary), 2),
+		}
+		
+		serializer = StaffStatsSerializer(data)
+		return Response(serializer.data)
+	
+	@extend_schema(
+		summary="Xodimga balans qo'shish",
+		request=BalanceTransactionSerializer,
+		responses={200: StaffSerializer},
+	)
+	@action(detail=True, methods=['post'])
+	def add_balance(self, request, pk=None):
+		"""Add balance transaction to staff member."""
+		staff = self.get_object()
+		serializer = BalanceTransactionSerializer(data=request.data)
+		serializer.is_valid(raise_exception=True)
+		
+		transaction = BalanceService.apply_transaction(
+			membership=staff,
+			amount=serializer.validated_data['amount'],
+			transaction_type=serializer.validated_data['transaction_type'],
+			description=serializer.validated_data.get('description', ''),
+			created_by=request.user
+		)
+		
+		staff.refresh_from_db()
+		return Response(StaffSerializer(staff).data)
+	
+	@extend_schema(
+		summary="Oylik to'lovini qayd qilish",
+		request=SalaryPaymentSerializer,
+		responses={200: StaffSerializer},
+	)
+	@action(detail=True, methods=['post'])
+	def pay_salary(self, request, pk=None):
+		"""Record salary payment for staff member."""
+		staff = self.get_object()
+		serializer = SalaryPaymentSerializer(data=request.data)
+		serializer.is_valid(raise_exception=True)
+		
+		from .models import SalaryPayment
+		payment = SalaryPayment.objects.create(
+			membership=staff,
+			amount=serializer.validated_data['amount'],
+			payment_method=serializer.validated_data['payment_method'],
+			payment_status=serializer.validated_data.get('payment_status', 'completed'),
+			notes=serializer.validated_data.get('notes', ''),
+			paid_by=request.user
+		)
+		
+		staff.refresh_from_db()
+		return Response(StaffSerializer(staff).data)

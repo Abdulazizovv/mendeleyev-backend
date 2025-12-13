@@ -2,7 +2,11 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
-from .models import Branch, BranchStatuses, BranchTypes, BranchMembership, Role, SalaryType, BranchSettings
+from .models import (
+    Branch, BranchStatuses, BranchTypes, BranchMembership, Role, SalaryType, 
+    BranchSettings, BalanceTransaction, SalaryPayment, EmploymentType
+)
+from apps.branch.choices import TransactionType, PaymentMethod, PaymentStatus
 # Lazy import to avoid circular dependency
 # AdminProfile will be imported inside methods if needed
 
@@ -165,26 +169,58 @@ AdminProfileInline = get_admin_profile_inline()
 
 @admin.register(Role)
 class RoleAdmin(admin.ModelAdmin):
-	list_display = ("name", "branch", "is_active", "created_at")
+	list_display = ("name", "code", "branch", "salary_range_display", "is_active", "memberships_count", "created_at")
 	list_filter = ("is_active", "branch")
-	search_fields = ("name", "description", "branch__name")
+	search_fields = ("name", "code", "description", "branch__name")
 	autocomplete_fields = ("branch",)
+	readonly_fields = ("created_at", "updated_at", "memberships_count")
+	
 	fieldsets = (
 		(_('Asosiy ma\'lumotlar'), {
-			'fields': ('name', 'branch', 'description', 'is_active')
+			'fields': ('name', 'code', 'branch', 'description', 'is_active')
+		}),
+		(_('Maosh yo\'riqnomasi'), {
+			'fields': ('salary_range_min', 'salary_range_max'),
+			'description': 'Tavsiya etilgan maosh oralig\'i (optional)'
 		}),
 		(_('Ruxsatlar'), {
 			'fields': ('permissions',)
 		}),
+		(_('Tizim ma\'lumotlari'), {
+			'classes': ('collapse',),
+			'fields': ('created_at', 'updated_at', 'memberships_count')
+		}),
 	)
+	
+	def get_queryset(self, request):
+		return super().get_queryset(request).select_related('branch')
+	
+	@admin.display(description='Maosh oralig\'i')
+	def salary_range_display(self, obj):
+		if obj.salary_range_min and obj.salary_range_max:
+			return format_html(
+				'{} - {} so\'m',
+				f"{obj.salary_range_min:_}",
+				f"{obj.salary_range_max:_}"
+			)
+		return '-'
+	
+	@admin.display(description='Xodimlar soni')
+	def memberships_count(self, obj):
+		return obj.get_memberships_count()
 
 
 @admin.register(BranchMembership)
 class BranchMembershipAdmin(admin.ModelAdmin):
-	list_display = ("user", "branch", "role", "role_ref", "title", "salary_type", "get_salary_display", "balance", "created_at")
-	list_filter = ("role", "branch", "salary_type")
-	search_fields = ("user__phone_number", "branch__name", "title")
+	list_display = (
+		"user_display", "branch", "role_display", "role_ref", "title", 
+		"salary_display", "balance_display", "employment_status", "created_at"
+	)
+	list_filter = ("role", "branch", "salary_type", "employment_type", "hire_date")
+	search_fields = ("user__phone_number", "user__first_name", "user__last_name", "branch__name", "title")
 	autocomplete_fields = ("user", "branch", "role_ref")
+	readonly_fields = ("created_at", "updated_at", "deleted_at", "days_employed", "years_employed", "balance_status")
+	
 	fieldsets = (
 		(_('Asosiy ma\'lumotlar'), {
 			'fields': ('user', 'branch', 'role', 'role_ref', 'title')
@@ -194,12 +230,209 @@ class BranchMembershipAdmin(admin.ModelAdmin):
 			'description': 'Maosh turiga qarab tegishli maydonni to\'ldiring.'
 		}),
 		(_('Moliya'), {
-			'fields': ('balance',)
+			'fields': ('balance', 'balance_status')
+		}),
+		(_('Ish ma\'lumotlari'), {
+			'fields': ('hire_date', 'termination_date', 'employment_type', 'days_employed', 'years_employed')
+		}),
+		(_('Shaxsiy ma\'lumotlar'), {
+			'fields': ('passport_serial', 'passport_number', 'address', 'emergency_contact'),
+			'classes': ('collapse',)
+		}),
+		(_('Qo\'shimcha'), {
+			'fields': ('notes',),
+			'classes': ('collapse',)
+		}),
+		(_('Tizim ma\'lumotlari'), {
+			'classes': ('collapse',),
+			'fields': ('created_at', 'updated_at', 'deleted_at')
 		}),
 	)
 	inlines = [AdminProfileInline]
 	
+	def get_queryset(self, request):
+		return super().get_queryset(request).select_related('user', 'branch', 'role_ref')
+	
+	@admin.display(description='Xodim')
+	def user_display(self, obj):
+		name = obj.user.get_full_name() or obj.user.phone_number
+		return format_html('<strong>{}</strong><br/><small>{}</small>', name, obj.user.phone_number)
+	
+	@admin.display(description='Rol')
+	def role_display(self, obj):
+		role_name = obj.get_role_display()
+		if obj.role_ref:
+			return format_html('{} <br/><small style="color:#666;">→ {}</small>', role_name, obj.role_ref.name)
+		return role_name
+	
 	@admin.display(description='Maosh')
-	def get_salary_display(self, obj):
-		return obj.get_salary_display()
+	def salary_display(self, obj):
+		if obj.salary_type == 'monthly':
+			return format_html('{} so\'m/oy', f"{obj.monthly_salary:_}")
+		elif obj.salary_type == 'hourly':
+			return format_html('{} so\'m/soat', f"{obj.hourly_rate or 0:_}")
+		elif obj.salary_type == 'per_lesson':
+			return format_html('{} so\'m/dars', f"{obj.per_lesson_rate or 0:_}")
+		return '-'
+	
+	@admin.display(description='Balans')
+	def balance_display(self, obj):
+		color = '#090' if obj.balance >= 0 else '#d9534f'
+		return format_html(
+			'<span style="color:{};font-weight:bold;">{} so\'m</span>',
+			color,
+			f"{obj.balance:_}"
+		)
+	
+	@admin.display(description='Ish holati')
+	def employment_status(self, obj):
+		if not obj.hire_date:
+			return format_html('<span style="color:#999;">Ma\'lumot yo\'q</span>')
+		
+		if obj.termination_date:
+			return format_html('<span style="color:#d9534f;">Ishdan chiqqan</span>')
+		
+		return format_html('<span style="color:#090;">Ishlamoqda</span>')
+
+
+@admin.register(BalanceTransaction)
+class BalanceTransactionAdmin(admin.ModelAdmin):
+	list_display = (
+		"staff_display", "transaction_type_display", "amount_display", 
+		"balance_change", "reference", "created_at"
+	)
+	list_filter = ("transaction_type", "created_at", "membership__branch")
+	search_fields = (
+		"membership__user__phone_number", "membership__user__first_name", 
+		"membership__user__last_name", "reference", "description"
+	)
+	autocomplete_fields = ("membership", "salary_payment", "processed_by")
+	readonly_fields = ("created_at", "updated_at", "previous_balance", "new_balance")
+	date_hierarchy = "created_at"
+	
+	fieldsets = (
+		(_('Asosiy ma\'lumotlar'), {
+			'fields': ('membership', 'transaction_type', 'amount', 'description')
+		}),
+		(_('Balans ma\'lumotlari'), {
+			'fields': ('previous_balance', 'new_balance')
+		}),
+		(_('Qo\'shimcha'), {
+			'fields': ('reference', 'salary_payment', 'processed_by')
+		}),
+		(_('Tizim ma\'lumotlari'), {
+			'classes': ('collapse',),
+			'fields': ('created_at', 'updated_at')
+		}),
+	)
+	
+	def get_queryset(self, request):
+		return super().get_queryset(request).select_related(
+			'membership', 'membership__user', 'membership__branch', 'processed_by'
+		)
+	
+	@admin.display(description='Xodim')
+	def staff_display(self, obj):
+		name = obj.membership.user.get_full_name() or obj.membership.user.phone_number
+		return format_html('<strong>{}</strong><br/><small>{}</small>', name, obj.membership.branch.name)
+	
+	@admin.display(description='Tur')
+	def transaction_type_display(self, obj):
+		colors = {
+			'salary': '#090',
+			'bonus': '#0a0',
+			'advance': '#fa0',
+			'deduction': '#d00',
+			'fine': '#c00',
+			'adjustment': '#66f',
+			'other': '#999'
+		}
+		color = colors.get(obj.transaction_type, '#000')
+		return format_html(
+			'<span style="color:{};">{}</span>',
+			color,
+			obj.get_transaction_type_display()
+		)
+	
+	@admin.display(description='Summa')
+	def amount_display(self, obj):
+		return f"{obj.amount:_} so'm"
+	
+	@admin.display(description='Balans o\'zgarishi')
+	def balance_change(self, obj):
+		change = obj.new_balance - obj.previous_balance
+		color = '#090' if change >= 0 else '#d9534f'
+		sign = '+' if change >= 0 else ''
+		return format_html(
+			'<span style="color:{};">{}{}</span>',
+			color,
+			sign,
+			f"{change:_}"
+		)
+
+
+@admin.register(SalaryPayment)
+class SalaryPaymentAdmin(admin.ModelAdmin):
+	list_display = (
+		"staff_display", "month", "amount_display", "payment_date", 
+		"payment_method_display", "status_badge", "created_at"
+	)
+	list_filter = ("status", "payment_method", "payment_date", "membership__branch")
+	search_fields = (
+		"membership__user__phone_number", "membership__user__first_name",
+		"membership__user__last_name", "reference_number", "notes"
+	)
+	autocomplete_fields = ("membership", "processed_by")
+	readonly_fields = ("created_at", "updated_at")
+	date_hierarchy = "payment_date"
+	
+	fieldsets = (
+		(_('Asosiy ma\'lumotlar'), {
+			'fields': ('membership', 'month', 'amount', 'payment_date')
+		}),
+		(_('To\'lov ma\'lumotlari'), {
+			'fields': ('payment_method', 'status', 'reference_number')
+		}),
+		(_('Qo\'shimcha'), {
+			'fields': ('notes', 'processed_by')
+		}),
+		(_('Tizim ma\'lumotlari'), {
+			'classes': ('collapse',),
+			'fields': ('created_at', 'updated_at')
+		}),
+	)
+	
+	def get_queryset(self, request):
+		return super().get_queryset(request).select_related(
+			'membership', 'membership__user', 'membership__branch', 'processed_by'
+		)
+	
+	@admin.display(description='Xodim')
+	def staff_display(self, obj):
+		name = obj.membership.user.get_full_name() or obj.membership.user.phone_number
+		return format_html('<strong>{}</strong><br/><small>{}</small>', name, obj.membership.branch.name)
+	
+	@admin.display(description='Summa')
+	def amount_display(self, obj):
+		return f"{obj.amount:_} so'm"
+	
+	@admin.display(description='To\'lov usuli')
+	def payment_method_display(self, obj):
+		return obj.get_payment_method_display()
+	
+	@admin.display(description='Holat')
+	def status_badge(self, obj):
+		colors = {
+			'pending': '#fa0',
+			'paid': '#090',
+			'cancelled': '#999',
+			'failed': '#d00'
+		}
+		color = colors.get(obj.status, '#000')
+		return format_html(
+			'<span style="padding:3px 8px;background:{};color:#fff;border-radius:3px;font-size:11px;">{}</span>',
+			color,
+			obj.get_status_display()
+		)
+
 

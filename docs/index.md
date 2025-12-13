@@ -15,6 +15,8 @@ Ushbu hujjatlar arxitektura, API, xavfsizlik, testlar va ekspluatatsiya bo'yicha
   - [Auth (OTP, parol, branch-scoped JWT)](./api/auth.md)
   - [Branch](./api/branch.md)
   - [Profile](./api/profile.md)
+  - [Staff Management (Xodimlar) - **Updated**](./api/hr.md)
+  - [Staff Frontend Integration Guide](./api/hr-frontend-integration.md)
   - [Academic (Akademik yillar, Choraklar)](./api/academic.md)
   - [Classes (Sinflar)](./api/classes.md)
   - [Subjects (Fanlar)](./api/subjects.md)

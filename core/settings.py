@@ -73,7 +73,7 @@ INSTALLED_APPS = [
     "apps.botapp",
     "apps.common",
     "apps.branch",
-    "apps.hr",
+    # "apps.hr",  # DEPRECATED - functionality moved to apps.branch
     "apps.school",
     "apps.school.academic",
     "apps.school.classes",

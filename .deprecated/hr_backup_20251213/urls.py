@@ -5,6 +5,8 @@ from rest_framework.routers import DefaultRouter
 from apps.hr.views import (
     StaffRoleViewSet,
     StaffProfileViewSet,
+    StaffCreateView,
+    StaffCheckView,
     BalanceTransactionViewSet,
     SalaryPaymentViewSet
 )
@@ -18,5 +20,7 @@ router.register(r'transactions', BalanceTransactionViewSet, basename='balancetra
 router.register(r'salaries', SalaryPaymentViewSet, basename='salarypayment')
 
 urlpatterns = [
+    path('staff/create/', StaffCreateView.as_view(), name='staff-create'),
+    path('staff/check-user/', StaffCheckView.as_view(), name='staff-check-user'),
     path('', include(router.urls)),
 ]

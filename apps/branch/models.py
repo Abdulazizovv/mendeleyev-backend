@@ -1,5 +1,5 @@
 from django.db import models
-from django.core.validators import RegexValidator
+from django.core.validators import RegexValidator, MinValueValidator
 from django.conf import settings
 from apps.common.models import BaseModel, BaseManager
 from django.utils.text import slugify
@@ -227,21 +227,43 @@ class SalaryType(models.TextChoices):
     PER_LESSON = 'per_lesson', 'Dars uchun'
 
 
+class EmploymentType(models.TextChoices):
+    """Employment types for staff members."""
+    FULL_TIME = 'full_time', "To'liq stavka"
+    PART_TIME = 'part_time', 'Yarim stavka'
+    CONTRACT = 'contract', 'Shartnoma asosida'
+
+
 class Role(BaseModel):
-    """Role model with permissions.
+    """Role model with permissions and salary guidance.
     
+    Unified role model for all staff types (teachers, admins, guards, cooks, etc).
     Roles can be branch-specific or global (branch=None).
     Permissions are stored as JSON for flexibility.
     
-    Note: Salary is now stored in BranchMembership, not in Role.
-    This allows each employee to have a different salary even with the same role.
+    Examples:
+    - Teacher: permissions={'academic': ['view_grades', 'edit_attendance']}
+    - Guard: permissions={'security': ['view_schedule', 'access_gates']}
+    - Cook: permissions={'kitchen': ['view_menu', 'manage_inventory']}
+    - Branch Admin: permissions={'admin': ['manage_staff', 'view_reports']}
+    
+    Note: Salary is stored in BranchMembership, not in Role.
+    salary_range_min/max are optional guidance values only.
     """
     
     name = models.CharField(
         max_length=100,
         db_index=True,
         verbose_name='Rol nomi',
-        help_text='Rol nomi (masalan: Director, Teacher, Guard)'
+        help_text='Rol nomi (masalan: O\'qituvchi, Qorovul, Oshpaz, Direktor)'
+    )
+    code = models.CharField(
+        max_length=50,
+        db_index=True,
+        blank=True,
+        default='',
+        verbose_name='Kod',
+        help_text='Unikal kod (masalan: teacher, guard, cook, director)'
     )
     branch = models.ForeignKey(
         'branch.Branch',
@@ -259,6 +281,22 @@ class Role(BaseModel):
         blank=True,
         verbose_name='Ruxsatlar',
         help_text='Ruxsatlar JSON formatida. Masalan: {"academic": ["view_grades", "edit_grades"], "finance": ["view_payments"]}'
+    )
+    
+    # Salary range guidance (optional, for HR purposes)
+    salary_range_min = models.IntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+        verbose_name='Minimal maosh (yo\'riqnoma)',
+        help_text='Tavsiya etilgan minimal maosh (so\'m). Faqat yo\'riqnoma - haqiqiy maosh BranchMembership\'da.'
+    )
+    salary_range_max = models.IntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+        verbose_name='Maksimal maosh (yo\'riqnoma)',
+        help_text='Tavsiya etilgan maksimal maosh (so\'m). Faqat yo\'riqnoma - haqiqiy maosh BranchMembership\'da.'
     )
     
     # Additional fields
@@ -281,11 +319,16 @@ class Role(BaseModel):
         indexes = [
             models.Index(fields=['branch', 'is_active']),
             models.Index(fields=['name']),
+            models.Index(fields=['code']),
         ]
 
     def __str__(self) -> str:
         branch_name = self.branch.name if self.branch else "Umumiy"
         return f"{self.name} @ {branch_name}"
+    
+    def get_memberships_count(self):
+        """Get count of active memberships using this role."""
+        return self.role_memberships.filter(deleted_at__isnull=True).count()
 
 
 class BranchMembership(BaseModel):
@@ -322,9 +365,9 @@ class BranchMembership(BaseModel):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='memberships',
-        verbose_name='Rol (yangi)',
-        help_text='Rol modeliga havola. Agar belgilansa, role maydoni e\'tiborsiz qoldiriladi.'
+        related_name='role_memberships',
+        verbose_name='Rol (to\'liq)',
+        help_text='Role modeliga havola. Barcha xodim turlari uchun: o\'qituvchi, admin, oshpaz, qorovul va boshqalar.'
     )
     
     title = models.CharField(
@@ -371,6 +414,68 @@ class BranchMembership(BaseModel):
         verbose_name='Balans',
         help_text='Xodimning balansi (so\'m, butun son). Ish haqini ko\'rish va boshqarish uchun.'
     )
+    
+    # Employment tracking fields (faqat staff uchun)
+    hire_date = models.DateField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name='Ishga olish sanasi',
+        help_text='Xodim ishga qabul qilingan sana'
+    )
+    
+    termination_date = models.DateField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name='Ishdan chiqish sanasi',
+        help_text='Xodim ishdan chiqqan sana. Bo\'sh bo\'lsa - hali ishlamoqda.'
+    )
+    
+    employment_type = models.CharField(
+        max_length=20,
+        choices=EmploymentType.choices,
+        default=EmploymentType.FULL_TIME,
+        blank=True,
+        verbose_name='Bandlik turi',
+        help_text='To\'liq stavka, yarim stavka yoki shartnoma'
+    )
+    
+    # Personal information (faqat staff uchun)
+    passport_serial = models.CharField(
+        max_length=2,
+        blank=True,
+        verbose_name='Pasport seriyasi',
+        help_text='Masalan: AA'
+    )
+    
+    passport_number = models.CharField(
+        max_length=7,
+        blank=True,
+        verbose_name='Pasport raqami',
+        help_text='Masalan: 1234567'
+    )
+    
+    address = models.TextField(
+        blank=True,
+        verbose_name='Manzil',
+        help_text='Yashash manzili'
+    )
+    
+    emergency_contact = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name='Favqulodda aloqa',
+        help_text='Favqulodda vaziyatlarda bog\'lanish uchun: Ism va telefon'
+    )
+    
+    # Additional data
+    notes = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name='Qo\'shimcha ma\'lumotlar',
+        help_text='JSON formatida qo\'shimcha ma\'lumotlar'
+    )
 
     class Meta:
         unique_together = ("user", "branch")
@@ -379,6 +484,10 @@ class BranchMembership(BaseModel):
         indexes = [
             models.Index(fields=["branch", "role"]),
             models.Index(fields=["user", "role"]),
+            models.Index(fields=["user", "branch", "role"]),
+            models.Index(fields=["hire_date"]),
+            models.Index(fields=["termination_date"]),
+            models.Index(fields=["employment_type"]),
         ]
 
     def __str__(self) -> str:
@@ -441,3 +550,245 @@ class BranchMembership(BaseModel):
             self.save(update_fields=['balance', 'updated_at'])
             return True
         return False
+    
+    # NEW: Staff management helper methods
+    @property
+    def is_staff(self):
+        """Check if this membership represents a staff member (not student/parent).
+        
+        Returns True for: TEACHER, BRANCH_ADMIN, SUPER_ADMIN, OTHER
+        Returns False for: STUDENT, PARENT
+        """
+        return self.role not in [BranchRole.STUDENT, BranchRole.PARENT]
+    
+    @property
+    def is_active_employment(self):
+        """Check if employment is currently active.
+        
+        Returns True if hire_date exists and termination_date is None.
+        """
+        return bool(self.hire_date and not self.termination_date)
+    
+    @property
+    def days_employed(self):
+        """Calculate number of days employed.
+        
+        Returns:
+            int: Number of days from hire_date to termination_date or today.
+            None: If hire_date is not set.
+        """
+        if not self.hire_date:
+            return None
+        
+        from django.utils import timezone
+        end_date = self.termination_date or timezone.now().date()
+        return (end_date - self.hire_date).days
+    
+    @property
+    def years_employed(self):
+        """Calculate number of years employed (rounded).
+        
+        Returns:
+            float: Number of years employed.
+            None: If hire_date is not set.
+        """
+        days = self.days_employed
+        if days is None:
+            return None
+        return round(days / 365.25, 1)
+    
+    def get_effective_salary(self):
+        """Get effective salary based on salary_type.
+        
+        Alias for get_salary() for consistency with HR module.
+        """
+        return self.get_salary()
+    
+    @property
+    def balance_status(self):
+        """Get balance status: 'positive', 'negative', or 'zero'."""
+        if self.balance > 0:
+            return 'positive'
+        elif self.balance < 0:
+            return 'negative'
+        return 'zero'
+
+
+# Import choices for transaction models
+from apps.branch.choices import TransactionType, PaymentMethod, PaymentStatus
+
+
+class BalanceTransaction(BaseModel):
+    """Balance transaction record with full audit trail.
+    
+    Every balance change creates a transaction record with:
+    - Type (salary, bonus, deduction, advance, fine, adjustment)
+    - Amount (always positive - type determines if it's credit or debit)
+    - Previous and new balance snapshots
+    - Reference (invoice number, payment ID, etc.)
+    - Description
+    
+    This ensures complete financial history and allows reconciliation.
+    All transactions are linked to BranchMembership (not StaffProfile).
+    """
+    
+    membership = models.ForeignKey(
+        'branch.BranchMembership',
+        on_delete=models.CASCADE,
+        related_name='balance_transactions',
+        verbose_name='Filial a\'zoligi'
+    )
+    transaction_type = models.CharField(
+        max_length=20,
+        choices=TransactionType.choices,
+        verbose_name='Tranzaksiya turi'
+    )
+    
+    # Amount in UZS (som), stored as integer
+    amount = models.IntegerField(
+        validators=[MinValueValidator(1)],
+        verbose_name='Summa',
+        help_text='Tranzaksiya summasi (so\'m, butun son, musbat)'
+    )
+    
+    # Balance snapshots for audit
+    previous_balance = models.IntegerField(
+        verbose_name='Oldingi balans',
+        help_text='Tranzaksiya oldidagi balans'
+    )
+    new_balance = models.IntegerField(
+        verbose_name='Yangi balans',
+        help_text='Tranzaksiya keyingi balans'
+    )
+    
+    # Metadata
+    reference = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        verbose_name='Ma\'lumotnoma',
+        help_text='Invoice raqami, to\'lov ID yoki boshqa reference'
+    )
+    description = models.TextField(
+        verbose_name='Tavsif'
+    )
+    
+    # Link to salary payment if applicable
+    salary_payment = models.ForeignKey(
+        'branch.SalaryPayment',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='transactions',
+        verbose_name='Maosh to\'lovi'
+    )
+    
+    # Processed by
+    processed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='processed_balance_transactions',
+        verbose_name='Kim tomonidan'
+    )
+
+    class Meta:
+        verbose_name = 'Balans tranzaksiyasi'
+        verbose_name_plural = 'Balans tranzaksiyalari'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['membership', '-created_at']),
+            models.Index(fields=['transaction_type', '-created_at']),
+            models.Index(fields=['reference']),
+            models.Index(fields=['salary_payment']),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.get_transaction_type_display()} - {self.amount:_} so'm @ {self.created_at.strftime('%Y-%m-%d')}"
+
+
+class SalaryPayment(BaseModel):
+    """Salary payment record.
+    
+    Tracks actual salary payments to staff members.
+    Each payment creates corresponding BalanceTransaction(s).
+    All payments are linked to BranchMembership (not StaffProfile).
+    """
+    
+    membership = models.ForeignKey(
+        'branch.BranchMembership',
+        on_delete=models.CASCADE,
+        related_name='salary_payments',
+        verbose_name='Filial a\'zoligi'
+    )
+    
+    # Payment period
+    month = models.DateField(
+        db_index=True,
+        verbose_name='Oy',
+        help_text='Oy (masalan: 2024-01-01 uchun yanvar 2024)'
+    )
+    
+    # Payment details
+    amount = models.IntegerField(
+        validators=[MinValueValidator(1)],
+        verbose_name='Summa',
+        help_text='To\'lov summasi (so\'m, butun son)'
+    )
+    payment_date = models.DateField(
+        db_index=True,
+        verbose_name='To\'lov sanasi'
+    )
+    payment_method = models.CharField(
+        max_length=20,
+        choices=PaymentMethod.choices,
+        default=PaymentMethod.CASH,
+        verbose_name='To\'lov usuli'
+    )
+    
+    status = models.CharField(
+        max_length=20,
+        choices=PaymentStatus.choices,
+        default=PaymentStatus.PENDING,
+        db_index=True,
+        verbose_name='Holat'
+    )
+    
+    # Metadata
+    notes = models.TextField(
+        blank=True,
+        default='',
+        verbose_name='Izohlar'
+    )
+    reference_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        verbose_name='To\'lov raqami',
+        help_text='Bank to\'lov raqami yoki boshqa reference'
+    )
+    
+    # Processed by
+    processed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='processed_salary_payments',
+        verbose_name='Kim tomonidan'
+    )
+
+    class Meta:
+        verbose_name = 'Maosh to\'lovi'
+        verbose_name_plural = 'Maosh to\'lovlari'
+        ordering = ['-payment_date', '-created_at']
+        unique_together = [('membership', 'month')]
+        indexes = [
+            models.Index(fields=['membership', '-payment_date']),
+            models.Index(fields=['month', 'status']),
+            models.Index(fields=['status', '-payment_date']),
+        ]
+
+    def __str__(self) -> str:
+        user_name = self.membership.user.get_full_name() or self.membership.user.phone_number
+        return f"{user_name} - {self.month.strftime('%Y-%m')} - {self.amount:_} so'm"
+
