@@ -1,8 +1,31 @@
 # Staff Management API - Frontend Integration Guide
 
-**Base URL:** `/api/branch/staff/`  
+**Base URL:** `/api/v1/branches/staff/`  
 **Auth:** Bearer token required  
-**Updated:** 2024-12-13
+**Updated:** 2024-12-16
+
+## 🎯 API Response Structure
+
+### List API - Compact Response
+```
+GET /api/v1/branches/staff/
+→ Returns 13 fields per staff (optimized for lists)
+```
+
+### Detail API - Complete Response  
+```
+GET /api/v1/branches/staff/{id}/
+→ Returns 35+ fields + transactions + payments (full profile)
+```
+
+**Benefits:**
+- ⚡ Faster list loading (60-70% smaller response)
+- 📊 Complete details in single request
+- 🎯 Optimized for different use cases
+
+See: [API Optimization Details](./staff-api-optimization.md)
+
+---
 
 ## Quick Start
 
@@ -30,51 +53,136 @@ interface User {
 interface Branch {
   id: string;
   name: string;
+  type: string;
 }
 
 interface Role {
   id: string;
   name: string;
   code: string;
-  salary_range_min: string;
-  salary_range_max: string;
+  permissions: Record<string, any>;
 }
 
-interface Staff {
+// List API Response (Compact)
+interface StaffListItem {
   id: string;
-  user: User;
-  branch: Branch;
-  role: string; // Legacy CharField
-  role_ref: string | null; // UUID of Role (ForeignKey)
-  role_ref_name: string | null;
+  full_name: string;
+  phone_number: string;
+  role: string;
   role_display: string;
+  role_ref_name: string | null;
   title: string;
-  hire_date: string;
-  termination_date: string | null;
   employment_type: 'full_time' | 'part_time' | 'contract' | 'intern';
-  monthly_salary: number;
-  salary: number; // Computed from get_salary()
-  salary_type: 'monthly' | 'hourly' | 'per_lesson';
-  hourly_rate: number | null;
-  per_lesson_rate: number | null;
+  employment_type_display: string;
+  hire_date: string;
   balance: number;
-  passport_serial: string;
-  passport_number: string;
-  address: string;
-  emergency_contact: string;
-  notes: string;
-  is_active_employment: boolean;
-  days_employed: number;
-  years_employed: number;
-  balance_status: 'positive' | 'negative' | 'zero';
-  created_at: string;
+  monthly_salary: number;
+  is_active: boolean;
 }
 
 interface StaffListResponse {
   count: number;
   next: string | null;
   previous: string | null;
-  results: Staff[];
+  results: StaffListItem[];
+}
+
+// Detail API Response (Complete)
+interface Transaction {
+  id: string;
+  transaction_type: string;
+  transaction_type_display: string;
+  amount: number;
+  previous_balance: number;
+  new_balance: number;
+  description: string;
+  processed_by_name: string;
+  created_at: string;
+}
+
+interface Payment {
+  id: string;
+  month: string;
+  amount: number;
+  payment_date: string;
+  payment_method: string;
+  payment_method_display: string;
+  status: string;
+  status_display: string;
+  processed_by_name: string;
+  created_at: string;
+}
+
+interface TransactionSummary {
+  total_transactions: number;
+  total_received: number;
+  total_deducted: number;
+}
+
+interface PaymentSummary {
+  total_payments: number;
+  total_amount_paid: number;
+  pending_payments: number;
+}
+
+interface StaffDetail {
+  // IDs
+  id: string;
+  user_id: string;
+  branch: string;
+  branch_name: string;
+  branch_type: string;
+  
+  // User info
+  phone_number: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  full_name: string;
+  
+  // Role
+  role: string;
+  role_display: string;
+  role_ref: string | null;
+  role_ref_id: string | null;
+  role_ref_name: string | null;
+  role_ref_permissions: Record<string, any> | null;
+  title: string;
+  
+  // Financial
+  balance: number;
+  balance_status: 'positive' | 'negative' | 'zero';
+  salary: number;
+  salary_type: 'monthly' | 'hourly' | 'per_lesson';
+  monthly_salary: number;
+  hourly_rate: number | null;
+  per_lesson_rate: number | null;
+  
+  // Employment
+  hire_date: string;
+  termination_date: string | null;
+  employment_type: string;
+  employment_type_display: string;
+  days_employed: number;
+  years_employed: number;
+  is_active_employment: boolean;
+  
+  // Personal
+  passport_serial: string;
+  passport_number: string;
+  address: string;
+  emergency_contact: string;
+  notes: string;
+  
+  // Related data
+  recent_transactions: Transaction[];
+  recent_payments: Payment[];
+  transaction_summary: TransactionSummary;
+  payment_summary: PaymentSummary;
+  
+  // Timestamps
+  created_at: string;
+  updated_at: string;
 }
 
 interface StaffStats {
@@ -108,7 +216,7 @@ interface SalaryPayment {
 
 ---
 
-## 1. List Staff (GET /api/branch/staff/)
+## 1. List Staff (GET /api/v1/branches/staff/)
 
 ### React Query Hook
 
@@ -136,7 +244,7 @@ const useStaffList = (filters: StaffFilters) => {
       });
       
       const response = await fetch(
-        `/api/branch/staff/?${params}`,
+        `/api/v1/branches/staff/?${params}`,
         { headers }
       );
       
@@ -234,7 +342,7 @@ const staffList = await getStaffList({ status: 'active' });
 
 ---
 
-## 2. Create Staff (POST /api/branch/staff/)
+## 2. Create Staff (POST /api/v1/branches/staff/)
 
 ```typescript
 interface CreateStaffInput {
@@ -259,7 +367,7 @@ const useCreateStaff = () => {
   
   return useMutation({
     mutationFn: async (data: CreateStaffInput) => {
-      const response = await fetch('/api/branch/staff/', {
+      const response = await fetch('/api/v1/branches/staff/', {
         method: 'POST',
         headers,
         body: JSON.stringify(data),
@@ -349,14 +457,16 @@ function CreateStaffForm() {
 
 ---
 
-## 3. Get Staff Details (GET /api/branch/staff/{id}/)
+## 3. Get Staff Details (GET /api/v1/branches/staff/{id}/)
+
+**Returns:** Complete staff profile with transactions and payments
 
 ```typescript
 const useStaffDetail = (staffId: string) => {
-  return useQuery<Staff>({
+  return useQuery<StaffDetail>({
     queryKey: ['staff', staffId],
     queryFn: async () => {
-      const response = await fetch(`/api/branch/staff/${staffId}/`, { headers });
+      const response = await fetch(`/api/v1/branches/staff/${staffId}/`, { headers });
       if (!response.ok) throw new Error('Failed to fetch staff details');
       return response.json();
     },
@@ -370,6 +480,128 @@ function StaffDetailPage({ staffId }: { staffId: string }) {
   
   if (isLoading) return <LoadingSpinner />;
   if (!staff) return <NotFound />;
+  
+  return (
+    <div className="staff-profile">
+      {/* Header */}
+      <div className="profile-header">
+        <h1>{staff.full_name}</h1>
+        <Badge color={staff.is_active_employment ? 'green' : 'red'}>
+          {staff.is_active_employment ? 'Faol' : 'Ishdan chiqqan'}
+        </Badge>
+      </div>
+      
+      {/* Contact Info */}
+      <section>
+        <h2>Aloqa</h2>
+        <p>Telefon: {staff.phone_number}</p>
+        <p>Email: {staff.email}</p>
+        <p>Favqulodda: {staff.emergency_contact}</p>
+        <p>Manzil: {staff.address}</p>
+      </section>
+      
+      {/* Employment Info */}
+      <section>
+        <h2>Ish ma'lumotlari</h2>
+        <p>Filial: {staff.branch_name}</p>
+        <p>Lavozim: {staff.role_display}</p>
+        {staff.role_ref_name && <p>Rol: {staff.role_ref_name}</p>}
+        <p>Ish turi: {staff.employment_type_display}</p>
+        <p>Ishga kirgan: {formatDate(staff.hire_date)}</p>
+        <p>Ish staji: {staff.years_employed.toFixed(1)} yil</p>
+      </section>
+      
+      {/* Financial Summary */}
+      <section>
+        <h2>Moliyaviy hisobot</h2>
+        <div className="financial-grid">
+          <div className="stat-card">
+            <h3>Joriy balans</h3>
+            <p className={`balance-${staff.balance_status}`}>
+              {formatCurrency(staff.balance)}
+            </p>
+          </div>
+          <div className="stat-card">
+            <h3>Oylik maosh</h3>
+            <p>{formatCurrency(staff.monthly_salary)}</p>
+          </div>
+          <div className="stat-card">
+            <h3>Jami olgan</h3>
+            <p>{formatCurrency(staff.transaction_summary.total_received)}</p>
+          </div>
+          <div className="stat-card">
+            <h3>Jami to'landi</h3>
+            <p>{formatCurrency(staff.payment_summary.total_amount_paid)}</p>
+          </div>
+        </div>
+      </section>
+      
+      {/* Recent Transactions */}
+      <section>
+        <h2>Oxirgi tranzaksiyalar</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Sana</th>
+              <th>Tur</th>
+              <th>Summa</th>
+              <th>Balans</th>
+              <th>Kim tomonidan</th>
+            </tr>
+          </thead>
+          <tbody>
+            {staff.recent_transactions.map(t => (
+              <tr key={t.id}>
+                <td>{formatDate(t.created_at)}</td>
+                <td>{t.transaction_type_display}</td>
+                <td>{formatCurrency(t.amount)}</td>
+                <td>{formatCurrency(t.new_balance)}</td>
+                <td>{t.processed_by_name}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+      
+      {/* Recent Payments */}
+      <section>
+        <h2>Oxirgi to'lovlar</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Oy</th>
+              <th>Summa</th>
+              <th>Sana</th>
+              <th>Usul</th>
+              <th>Holat</th>
+            </tr>
+          </thead>
+          <tbody>
+            {staff.recent_payments.map(p => (
+              <tr key={p.id}>
+                <td>{p.month}</td>
+                <td>{formatCurrency(p.amount)}</td>
+                <td>{formatDate(p.payment_date)}</td>
+                <td>{p.payment_method_display}</td>
+                <td>
+                  <Badge color={p.status === 'completed' ? 'green' : 'yellow'}>
+                    {p.status_display}
+                  </Badge>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+      
+      {/* Personal Info */}
+      <section>
+        <h2>Shaxsiy ma'lumotlar</h2>
+        <p>Pasport: {staff.passport_serial} {staff.passport_number}</p>
+        {staff.notes && <p>Izoh: {staff.notes}</p>}
+      </section>
+    </div>
+  );
   
   return (
     <div>
@@ -411,7 +643,7 @@ function StaffDetailPage({ staffId }: { staffId: string }) {
 
 ---
 
-## 4. Update Staff (PATCH /api/branch/staff/{id}/)
+## 4. Update Staff (PATCH /api/v1/branches/staff/{id}/)
 
 ```typescript
 interface UpdateStaffInput {
@@ -427,7 +659,7 @@ const useUpdateStaff = (staffId: string) => {
   
   return useMutation({
     mutationFn: async (data: UpdateStaffInput) => {
-      const response = await fetch(`/api/branch/staff/${staffId}/`, {
+      const response = await fetch(`/api/v1/branches/staff/${staffId}/`, {
         method: 'PATCH',
         headers,
         body: JSON.stringify(data),
@@ -453,7 +685,7 @@ terminateEmployment.mutate({
 
 ---
 
-## 5. Delete Staff (DELETE /api/branch/staff/{id}/)
+## 5. Delete Staff (DELETE /api/v1/branches/staff/{id}/)
 
 ```typescript
 const useDeleteStaff = () => {
@@ -461,7 +693,7 @@ const useDeleteStaff = () => {
   
   return useMutation({
     mutationFn: async (staffId: string) => {
-      const response = await fetch(`/api/branch/staff/${staffId}/`, {
+      const response = await fetch(`/api/v1/branches/staff/${staffId}/`, {
         method: 'DELETE',
         headers,
       });
@@ -495,7 +727,7 @@ function DeleteStaffButton({ staffId }: { staffId: string }) {
 
 ---
 
-## 6. Staff Statistics (GET /api/branch/staff/stats/)
+## 6. Staff Statistics (GET /api/v1/branches/staff/stats/)
 
 ```typescript
 const useStaffStats = (branchId?: string) => {
@@ -503,7 +735,7 @@ const useStaffStats = (branchId?: string) => {
     queryKey: ['staff', 'stats', branchId],
     queryFn: async () => {
       const params = branchId ? `?branch=${branchId}` : '';
-      const response = await fetch(`/api/branch/staff/stats/${params}`, { headers });
+      const response = await fetch(`/api/v1/branches/staff/stats/${params}`, { headers });
       if (!response.ok) throw new Error('Failed to fetch stats');
       return response.json();
     },
@@ -551,7 +783,7 @@ function StaffDashboard({ branchId }: { branchId: string }) {
 
 ---
 
-## 7. Add Balance Transaction (POST /api/branch/staff/{id}/add_balance/)
+## 7. Add Balance Transaction (POST /api/v1/branches/staff/{id}/add_balance/)
 
 ```typescript
 const useAddBalance = (staffId: string) => {
@@ -560,7 +792,7 @@ const useAddBalance = (staffId: string) => {
   return useMutation({
     mutationFn: async (data: BalanceTransaction) => {
       const response = await fetch(
-        `/api/branch/staff/${staffId}/add_balance/`,
+        `/api/v1/branches/staff/${staffId}/add_balance/`,
         {
           method: 'POST',
           headers,
@@ -626,7 +858,7 @@ function AddBalanceModal({ staffId }: { staffId: string }) {
 
 ---
 
-## 8. Record Salary Payment (POST /api/branch/staff/{id}/pay_salary/)
+## 8. Record Salary Payment (POST /api/v1/branches/staff/{id}/pay_salary/)
 
 ```typescript
 const usePaySalary = (staffId: string) => {
@@ -635,7 +867,7 @@ const usePaySalary = (staffId: string) => {
   return useMutation({
     mutationFn: async (data: SalaryPayment) => {
       const response = await fetch(
-        `/api/branch/staff/${staffId}/pay_salary/`,
+        `/api/v1/branches/staff/${staffId}/pay_salary/`,
         {
           method: 'POST',
           headers,

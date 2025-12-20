@@ -61,14 +61,14 @@ Complete refactoring of HR/Staff management system with architectural simplifica
 
 - API Endpoints:
   ```
-  GET    /api/branch/staff/           - List staff
-  POST   /api/branch/staff/           - Create staff
-  GET    /api/branch/staff/{id}/      - Get staff details
-  PATCH  /api/branch/staff/{id}/      - Update staff
-  DELETE /api/branch/staff/{id}/      - Delete staff (soft)
-  GET    /api/branch/staff/stats/     - Staff statistics
-  POST   /api/branch/staff/{id}/add_balance/  - Add transaction
-  POST   /api/branch/staff/{id}/pay_salary/   - Record payment
+  GET    /api/v1/branches/staff/           - List staff
+  POST   /api/v1/branches/staff/           - Create staff
+  GET    /api/v1/branches/staff/{id}/      - Get staff details
+  PATCH  /api/v1/branches/staff/{id}/      - Update staff
+  DELETE /api/v1/branches/staff/{id}/      - Delete staff (soft)
+  GET    /api/v1/branches/staff/stats/     - Staff statistics
+  POST   /api/v1/branches/staff/{id}/add_balance/  - Add transaction
+  POST   /api/v1/branches/staff/{id}/pay_salary/   - Record payment
   ```
 
 ### 5. **URL Configuration** ✓

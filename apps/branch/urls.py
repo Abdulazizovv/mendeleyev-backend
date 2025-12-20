@@ -9,11 +9,17 @@ from .views import (
     BalanceUpdateView,
     BranchSettingsView,
     StaffViewSet,
+    BranchSettingsViewSet,
+    BalanceTransactionViewSet,
+    SalaryPaymentViewSet,
 )
 
 # Router for ViewSets
 router = DefaultRouter()
 router.register(r'staff', StaffViewSet, basename='staff')
+router.register(r'settings', BranchSettingsViewSet, basename='branch-settings')
+router.register(r'transactions', BalanceTransactionViewSet, basename='balance-transaction')
+router.register(r'payments', SalaryPaymentViewSet, basename='salary-payment')
 
 urlpatterns = [
     path("managed/", ManagedBranchesView.as_view(), name="managed-branches"),

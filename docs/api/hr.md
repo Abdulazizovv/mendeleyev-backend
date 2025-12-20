@@ -46,7 +46,7 @@ The staff management system is built on the unified `BranchMembership` model, el
 
 ## API Endpoints
 
-**Base URL:** `/api/branch/staff/`
+**Base URL:** `/api/v1/branches/staff/`
 
 **Authentication:** Bearer token kerak (Authorization: Bearer YOUR_TOKEN)
 
@@ -60,9 +60,11 @@ The staff management system is built on the unified `BranchMembership` model, el
 
 ### 1. List Staff
 
-**Endpoint**: `GET /api/branch/staff/`
+**Endpoint**: `GET /api/v1/branches/staff/`
 
-**Description**: Barcha xodimlar ro'yxatini olish. Pagination, filtering, search, ordering qo'llab-quvvatlanadi.
+**Description**: Barcha xodimlar ro'yxatini olish. Ixcham ma'lumotlar bilan. Pagination, filtering, search, ordering qo'llab-quvvatlanadi.
+
+**⚡ Performance:** Ixcham response - faqat zarur maydonlar qaytariladi.
 
 **Query Parameters**:
 | Parameter | Type | Description | Example |
@@ -76,70 +78,54 @@ The staff management system is built on the unified `BranchMembership` model, el
 | `page` | number | Sahifa raqami | `?page=2` |
 | `page_size` | number | Har sahifada nechta | `?page_size=20` |
 
-**Response**: 200 OK
+**Response**: 200 OK (Compact - only essential fields)
 ```json
 {
   "count": 25,
-  "next": "http://api.example.com/api/branch/staff/?page=2",
+  "next": "http://api.example.com/api/v1/branches/staff/?page=2",
   "previous": null,
   "results": [
     {
       "id": "uuid",
-      "user": {
-        "id": "uuid",
-        "first_name": "Ali",
-        "last_name": "Valiyev",
-        "phone": "+998901234567",
-        "email": "ali@example.com"
-      },
-      "branch": {
-        "id": "uuid",
-        "name": "Toshkent filiali"
-      },
-      "role_ref": "uuid",
-      "role_ref_name": "O'qituvchi",
+      "full_name": "Ali Valiyev",
+      "phone_number": "+998901234567",
+      "role": "teacher",
       "role_display": "O'qituvchi",
-      "hire_date": "2024-01-15",
-      "termination_date": null,
+      "role_ref_name": "Matematika o'qituvchisi",
+      "title": "Katta o'qituvchi",
       "employment_type": "full_time",
-      "monthly_salary": 4000000,
-      "salary": 4000000,
+      "employment_type_display": "To'liq ish kuni",
+      "hire_date": "2024-01-15",
       "balance": 1500000,
-      "passport_serial": "AB",
-      "passport_number": "1234567",
-      "address": "Toshkent sh., Chilonzor tumani",
-      "emergency_contact": "+998901111111",
-      "notes": "Matematika fanidan mutaxassis",
-      "is_active_employment": true,
-      "days_employed": 120,
-      "years_employed": 0.33,
-      "balance_status": "positive",
-      "created_at": "2024-01-10T10:00:00Z"
+      "monthly_salary": 4000000,
+      "is_active": true
     }
   ]
 }
 ```
 
+**Note:** List API faqat asosiy ma'lumotlarni qaytaradi. To'liq ma'lumot uchun detail endpoint'dan foydalaning.
+
 **Examples**:
 ```bash
 # All active staff
-GET /api/branch/staff/?status=active
+GET /api/v1/branches/staff/?status=active
 
 # Teachers only
-GET /api/branch/staff/?role=uuid&status=active
+GET /api/v1/branches/staff/?role=uuid&status=active
 
 # Search by name
-GET /api/branch/staff/?search=Ali
+GET /api/v1/branches/staff/?search=Ali
 
 # Sort by hire date (newest first)
-GET /api/branch/staff/?ordering=-hire_date
+GET /api/v1/branches/staff/?ordering=-hire_date
 ```
 
 ---
 
 ### 2. Create Staff Member
 
-**Endpoint**: `POST /api/branch/staff/`
+**Endpoint**: `POST /api/v1/branches/staff/`
 
 **Request Body**:
 ```json
@@ -187,44 +173,108 @@ GET /api/branch/staff/?ordering=-hire_date
 
 ### 3. Get Staff Details
 
-**Endpoint**: `GET /api/branch/staff/{id}/`
+**Endpoint**: `GET /api/v1/branches/staff/{id}/`
 
-**Response**: 200 OK
+**Description**: Xodimning to'liq ma'lumotlari, tranzaksiyalari va to'lovlari bilan.
+
+**📊 Includes:**
+- Complete user and branch information
+- Role details with permissions
+- Financial summaries
+- Last 10 transactions
+- Last 10 salary payments
+- Employment statistics
+
+**Response**: 200 OK (Complete with all related data)
 ```json
 {
   "id": "uuid",
-  "user": {
-    "id": "uuid",
-    "first_name": "Ali",
-    "last_name": "Valiyev",
-    "phone": "+998901234567",
-    "email": "ali@example.com"
+  "user_id": "uuid",
+  "phone_number": "+998901234567",
+  "first_name": "Ali",
+  "last_name": "Valiyev",
+  "email": "ali@example.com",
+  "full_name": "Ali Valiyev",
+  
+  "branch": "uuid",
+  "branch_name": "Toshkent filiali",
+  "branch_type": "main",
+  
+  "role": "teacher",
+  "role_display": "O'qituvchi",
+  "role_ref": "uuid",
+  "role_ref_id": "uuid",
+  "role_ref_name": "Matematika o'qituvchisi",
+  "role_ref_permissions": {
+    "can_view_students": true,
+    "can_edit_grades": true
   },
-  "branch": {
-    "id": "uuid",
-    "name": "Toshkent filiali"
-  },
-  "role": {
-    "id": "uuid",
-    "name": "O'qituvchi",
-    "code": "teacher",
-    "salary_range_min": "3000000.00",
-    "salary_range_max": "5000000.00"
-  },
+  "title": "Katta o'qituvchi",
+  
+  "balance": 1500000,
+  "balance_status": "positive",
+  "salary": 4000000,
+  "salary_type": "monthly",
+  "monthly_salary": 4000000,
+  "hourly_rate": null,
+  "per_lesson_rate": null,
+  
   "hire_date": "2024-01-15",
   "termination_date": null,
   "employment_type": "full_time",
-  "salary": "4000000.00",
-  "balance": "1500000.00",
+  "employment_type_display": "To'liq ish kuni",
+  "days_employed": 120,
+  "years_employed": 0.33,
+  "is_active_employment": true,
+  
   "passport_serial": "AB",
   "passport_number": "1234567",
   "address": "Toshkent sh., Chilonzor tumani",
   "emergency_contact": "+998901111111",
   "notes": "Matematika fanidan mutaxassis",
-  "is_active_employment": true,
-  "days_employed": 120,
-  "years_employed": 0.33,
-  "balance_status": "positive"
+  
+  "recent_transactions": [
+    {
+      "id": "uuid",
+      "transaction_type": "salary",
+      "transaction_type_display": "Oylik",
+      "amount": 4000000,
+      "previous_balance": 1000000,
+      "new_balance": 5000000,
+      "description": "Yanvar oyi ish haqi",
+      "processed_by_name": "Admin User",
+      "created_at": "2024-01-31T10:00:00Z"
+    }
+  ],
+  
+  "recent_payments": [
+    {
+      "id": "uuid",
+      "month": "2024-01",
+      "amount": 4000000,
+      "payment_date": "2024-01-31",
+      "payment_method": "bank_transfer",
+      "payment_method_display": "Bank o'tkazmasi",
+      "status": "completed",
+      "status_display": "To'landi",
+      "processed_by_name": "Admin User"
+    }
+  ],
+  
+  "transaction_summary": {
+    "total_transactions": 25,
+    "total_received": 15000000,
+    "total_deducted": 2000000
+  },
+  
+  "payment_summary": {
+    "total_payments": 10,
+    "total_amount_paid": 40000000,
+    "pending_payments": 2
+  },
+  
+  "created_at": "2024-01-10T10:00:00Z",
+  "updated_at": "2024-12-16T08:30:00Z"
 }
 ```
 
@@ -232,7 +282,7 @@ GET /api/branch/staff/?ordering=-hire_date
 
 ### 4. Update Staff
 
-**Endpoint**: `PATCH /api/branch/staff/{id}/`
+**Endpoint**: `PATCH /api/v1/branches/staff/{id}/`
 
 **Request Body** (partial update):
 ```json
@@ -256,7 +306,7 @@ GET /api/branch/staff/?ordering=-hire_date
 
 ### 5. Delete Staff (Soft Delete)
 
-**Endpoint**: `DELETE /api/branch/staff/{id}/`
+**Endpoint**: `DELETE /api/v1/branches/staff/{id}/`
 
 **Response**: 204 No Content
 
@@ -266,7 +316,7 @@ GET /api/branch/staff/?ordering=-hire_date
 
 ### 6. Staff Statistics
 
-**Endpoint**: `GET /api/branch/staff/stats/`
+**Endpoint**: `GET /api/v1/branches/staff/stats/`
 
 **Query Parameters**:
 - `branch` (UUID): Filter statistics by branch
@@ -294,7 +344,7 @@ GET /api/branch/staff/?ordering=-hire_date
 
 ### 7. Add Balance Transaction
 
-**Endpoint**: `POST /api/branch/staff/{id}/add_balance/`
+**Endpoint**: `POST /api/v1/branches/staff/{id}/add_balance/`
 
 **Request Body**:
 ```json
@@ -342,7 +392,7 @@ GET /api/branch/staff/?ordering=-hire_date
 
 ### 8. Record Salary Payment
 
-**Endpoint**: `POST /api/branch/staff/{id}/pay_salary/`
+**Endpoint**: `POST /api/v1/branches/staff/{id}/pay_salary/`
 
 **Request Body**:
 ```json
@@ -434,7 +484,7 @@ class EmploymentType(models.TextChoices):
 ### Creating Staff with Full Details
 
 ```bash
-curl -X POST http://localhost:8000/api/branch/staff/ \
+curl -X POST http://localhost:8000/api/v1/branches/staff/ \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -455,7 +505,7 @@ curl -X POST http://localhost:8000/api/branch/staff/ \
 ### Paying Salary
 
 ```bash
-curl -X POST http://localhost:8000/api/branch/staff/{id}/pay_salary/ \
+curl -X POST http://localhost:8000/api/v1/branches/staff/{id}/pay_salary/ \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -469,7 +519,7 @@ curl -X POST http://localhost:8000/api/branch/staff/{id}/pay_salary/ \
 ### Filtering Active Teachers
 
 ```bash
-curl -X GET "http://localhost:8000/api/branch/staff/?role=teacher-role-uuid&status=active" \
+curl -X GET "http://localhost:8000/api/v1/branches/staff/?role=teacher-role-uuid&status=active" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 

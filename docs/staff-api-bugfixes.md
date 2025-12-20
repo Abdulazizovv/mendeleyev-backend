@@ -277,7 +277,7 @@ docker compose restart django
 
 # Test API
 curl -H "Authorization: Bearer TOKEN" \
-  http://localhost:8000/api/branch/staff/?status=active
+  http://localhost:8000/api/v1/branches/staff/?status=active
 
 curl -H "Authorization: Bearer TOKEN" \
   http://localhost:8000/api/v1/branches/{branch_id}/roles/

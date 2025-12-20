@@ -11,6 +11,7 @@ from django.utils import timezone
 from apps.common.models import BaseModel
 from apps.branch.models import Branch, BranchMembership
 from auth.profiles.models import StudentProfile
+from .choices import IncomeCategory, ExpenseCategory
 
 
 class TransactionType(models.TextChoices):
@@ -153,6 +154,24 @@ class Transaction(BaseModel):
         choices=TransactionStatus.choices,
         default=TransactionStatus.PENDING,
         verbose_name='Holat'
+    )
+    
+    # Kirim va chiqim kategoriyalari
+    income_category = models.CharField(
+        max_length=50,
+        choices=IncomeCategory.choices,
+        null=True,
+        blank=True,
+        verbose_name='Kirim turi',
+        help_text='Agar tranzaksiya kirim bo\'lsa'
+    )
+    expense_category = models.CharField(
+        max_length=50,
+        choices=ExpenseCategory.choices,
+        null=True,
+        blank=True,
+        verbose_name='Chiqim turi',
+        help_text='Agar tranzaksiya chiqim bo\'lsa'
     )
     
     # Summa

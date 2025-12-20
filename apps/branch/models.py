@@ -183,6 +183,53 @@ class BranchSettings(BaseModel):
         help_text='Valyuta belgisi (masalan: so\'m, $)'
     )
     
+    # Maosh hisoblash sozlamalari
+    salary_calculation_time = models.TimeField(
+        default='00:00',
+        verbose_name='Maosh hisoblash vaqti',
+        help_text='Har kuni qaysi vaqtda xodimlarning maoshi hisoblanadi (24:00 formatida)'
+    )
+    auto_calculate_salary = models.BooleanField(
+        default=True,
+        verbose_name='Avtomatik maosh hisoblash',
+        help_text='Har kuni avtomatik ravishda xodimlarning oylik maoshini hisoblash'
+    )
+    salary_calculation_day = models.IntegerField(
+        default=1,
+        choices=[(i, f'{i}-kun') for i in range(1, 32)],
+        verbose_name='Maosh to\'lash kuni',
+        help_text='Har oy qaysi kuni xodimlarga maosh to\'lanadi (1-31)'
+    )
+    
+    # To'lov va chegirmalar
+    late_payment_penalty_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0.00,
+        verbose_name='Kechikish jarima foizi',
+        help_text='To\'lovni kechiktirish uchun jarima foizi (%)'
+    )
+    early_payment_discount_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0.00,
+        verbose_name='Erta to\'lash chegirmasi (%)',
+        help_text='To\'lovni muddatidan oldin to\'lash uchun chegirma foizi'
+    )
+    
+    # Ish vaqti sozlamalari
+    work_days_per_week = models.IntegerField(
+        default=6,
+        choices=[(i, f'{i} kun') for i in range(1, 8)],
+        verbose_name='Haftada ish kunlari',
+        help_text='Haftada necha kun ish bor (1-7)'
+    )
+    work_hours_per_day = models.IntegerField(
+        default=8,
+        verbose_name='Kunlik ish soatlari',
+        help_text='Bir kunda necha soat ish (standart: 8 soat)'
+    )
+    
     # Boshqa sozlamalar (JSON formatida)
     additional_settings = models.JSONField(
         default=dict,
@@ -213,10 +260,10 @@ class BranchSettings(BaseModel):
 class BranchRole(models.TextChoices):
     """Role choices for branch memberships."""
     SUPER_ADMIN = 'super_admin', 'Super Admin'
-    BRANCH_ADMIN = 'branch_admin', 'Branch Admin'
-    TEACHER = 'teacher', 'Teacher'
-    STUDENT = 'student', 'Student'
-    PARENT = 'parent', 'Parent'
+    BRANCH_ADMIN = 'branch_admin', 'Filial admini'
+    TEACHER = 'teacher', 'O\'qituvchi'
+    STUDENT = 'student', 'O\'quvchi'
+    PARENT = 'parent', 'Ota-ona'
     OTHER = 'other', 'Boshqa xodim'
 
 
@@ -231,6 +278,14 @@ class EmploymentType(models.TextChoices):
     """Employment types for staff members."""
     FULL_TIME = 'full_time', "To'liq stavka"
     PART_TIME = 'part_time', 'Yarim stavka'
+
+
+class PaymentType(models.TextChoices):
+    """Payment type for salary payments."""
+    ADVANCE = 'advance', 'Avans'
+    SALARY = 'salary', 'Oylik'
+    BONUS_PAYMENT = 'bonus_payment', 'Bonus to\'lovi'
+    OTHER_PAYMENT = 'other', 'Boshqa to\'lov'
     CONTRACT = 'contract', 'Shartnoma asosida'
 
 
@@ -478,7 +533,6 @@ class BranchMembership(BaseModel):
     )
 
     class Meta:
-        unique_together = ("user", "branch")
         verbose_name = "Filial a'zoligi"
         verbose_name_plural = "Filial a'zoliklari"
         indexes = [
@@ -489,6 +543,8 @@ class BranchMembership(BaseModel):
             models.Index(fields=["termination_date"]),
             models.Index(fields=["employment_type"]),
         ]
+        # Remove unique_together to allow soft delete without conflicts
+        # Business logic should prevent duplicate active memberships
 
     def __str__(self) -> str:
         return f"{self.user.phone_number} @ {self.branch.name} ({self.get_role_display()})"
@@ -612,6 +668,71 @@ class BranchMembership(BaseModel):
         elif self.balance < 0:
             return 'negative'
         return 'zero'
+    
+    def soft_delete(self, user=None):
+        """
+        Soft delete staff membership and set termination date.
+        
+        This method:
+        1. Sets deleted_at timestamp (soft delete)
+        2. Sets termination_date to today (if staff member)
+        3. Updates audit trail (updated_by)
+        
+        Args:
+            user: Optional user performing the deletion (for audit trail)
+            
+        Returns:
+            self: The soft-deleted membership
+        """
+        from django.utils import timezone
+        
+        # Set soft delete timestamp
+        self.deleted_at = timezone.now()
+        
+        # Set termination date if this is a staff member and not already terminated
+        if self.is_staff and not self.termination_date:
+            self.termination_date = timezone.now().date()
+        
+        # Update audit trail
+        if user:
+            self.updated_by = user
+        
+        # Save changes
+        update_fields = ['deleted_at', 'updated_at']
+        if self.is_staff and self.termination_date:
+            update_fields.append('termination_date')
+        if user:
+            update_fields.append('updated_by')
+        
+        self.save(update_fields=update_fields)
+        return self
+    
+    def restore(self):
+        """
+        Restore a soft-deleted membership.
+        
+        This method:
+        1. Clears deleted_at timestamp
+        2. Clears termination_date (if staff member)
+        
+        Returns:
+            self: The restored membership
+        """
+        if self.deleted_at:
+            self.deleted_at = None
+            
+            # Clear termination date if this is a staff member
+            if self.is_staff and self.termination_date:
+                self.termination_date = None
+            
+            # Save changes
+            update_fields = ['deleted_at', 'updated_at']
+            if self.is_staff:
+                update_fields.append('termination_date')
+            
+            self.save(update_fields=update_fields)
+        
+        return self
 
 
 # Import choices for transaction models
@@ -754,6 +875,16 @@ class SalaryPayment(BaseModel):
         verbose_name='Holat'
     )
     
+    # Payment type (advance, salary, bonus, etc.)
+    payment_type = models.CharField(
+        max_length=20,
+        choices=PaymentType.choices,
+        default=PaymentType.SALARY,
+        db_index=True,
+        verbose_name='To\'lov turi',
+        help_text='Avans, oylik yoki boshqa to\'lov'
+    )
+    
     # Metadata
     notes = models.TextField(
         blank=True,
@@ -781,11 +912,11 @@ class SalaryPayment(BaseModel):
         verbose_name = 'Maosh to\'lovi'
         verbose_name_plural = 'Maosh to\'lovlari'
         ordering = ['-payment_date', '-created_at']
-        unique_together = [('membership', 'month')]
         indexes = [
             models.Index(fields=['membership', '-payment_date']),
             models.Index(fields=['month', 'status']),
             models.Index(fields=['status', '-payment_date']),
+            models.Index(fields=['payment_type', '-payment_date']),
         ]
 
     def __str__(self) -> str:

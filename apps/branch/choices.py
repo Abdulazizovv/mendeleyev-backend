@@ -4,11 +4,11 @@ from django.db import models
 
 
 class TransactionType(models.TextChoices):
-    """Balance transaction types."""
-    SALARY = 'salary', 'Maosh'
+    """Balance transaction types - balansga qo'shish yoki ayirish."""
+    SALARY_ACCRUAL = 'salary_accrual', 'Oylik hisoblash'
     BONUS = 'bonus', 'Bonus'
-    DEDUCTION = 'deduction', 'Ushlab qolish'
-    ADVANCE = 'advance', 'Avans'
+    DEDUCTION = 'deduction', 'Balansdan chiqarish'
+    ADVANCE = 'advance', 'Avans berish'
     FINE = 'fine', 'Jarima'
     ADJUSTMENT = 'adjustment', "To'g'rilash"
     OTHER = 'other', 'Boshqa'
@@ -28,3 +28,11 @@ class PaymentStatus(models.TextChoices):
     PAID = 'paid', "To'langan"
     CANCELLED = 'cancelled', 'Bekor qilingan'
     FAILED = 'failed', 'Muvaffaqiyatsiz'
+
+
+class PaymentType(models.TextChoices):
+    """Payment type - xodimga to'lov turlari."""
+    ADVANCE = 'advance', 'Avans to\'lovi'
+    SALARY = 'salary', 'Oylik to\'lovi'
+    BONUS_PAYMENT = 'bonus_payment', 'Bonus to\'lovi'
+    OTHER = 'other', 'Boshqa to\'lov'

@@ -57,11 +57,11 @@ Xodimlar boshqaruvi uchun to'liq API dokumentatsiyasi va frontend integratsiya q
 # API hujjatlarini o'qing
 cat docs/api/hr.md
 
-# Django serverni ishga tushiring
-make restart
+# Django serverni ishga tushiring (Docker)
+docker compose restart django
 
 # API'ni test qiling
-curl -H "Authorization: Bearer TOKEN" http://localhost:8000/api/branch/staff/
+curl -H "Authorization: Bearer TOKEN" http://localhost:8000/api/v1/branches/staff/
 ```
 
 ### Frontend Developer
@@ -73,6 +73,30 @@ cat docs/api/hr-frontend-integration.md
 # React Query hooks'ni implement qiling
 # Example components'dan foydalaning
 ```
+
+---
+
+## 🎯 API Response Optimization
+
+**⚡ List API** - Ixcham ma'lumotlar (faqat zarur maydonlar)
+```
+GET /api/v1/branches/staff/
+→ 13 fields per staff (fast, efficient)
+```
+
+**📊 Detail API** - To'liq ma'lumotlar (barcha tegishli ma'lumotlar)
+```
+GET /api/v1/branches/staff/{id}/
+→ 35+ fields + transactions + payments (complete)
+```
+
+**Benefits:**
+- ✅ 60-70% smaller list responses
+- ✅ Single request for complete details
+- ✅ No multiple API calls needed
+- ✅ Optimized for mobile and web
+
+See: [Staff API Optimization](./staff-api-optimization.md)
 
 ---
 
@@ -103,16 +127,16 @@ User → BranchMembership (Single Source of Truth)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/branch/staff/` | Xodimlar ro'yxati |
-| POST | `/api/branch/staff/` | Yangi xodim qo'shish |
-| GET | `/api/branch/staff/{id}/` | Xodim tafsilotlari |
-| PATCH | `/api/branch/staff/{id}/` | Xodim yangilash |
-| DELETE | `/api/branch/staff/{id}/` | Xodim o'chirish |
-| GET | `/api/branch/staff/stats/` | Statistika |
-| POST | `/api/branch/staff/{id}/add_balance/` | Balans qo'shish |
-| POST | `/api/branch/staff/{id}/pay_salary/` | Oylik to'lash |
+| GET | `/api/v1/branches/staff/` | Xodimlar ro'yxati |
+| POST | `/api/v1/branches/staff/` | Yangi xodim qo'shish |
+| GET | `/api/v1/branches/staff/{id}/` | Xodim tafsilotlari |
+| PATCH | `/api/v1/branches/staff/{id}/` | Xodim yangilash |
+| DELETE | `/api/v1/branches/staff/{id}/` | Xodim o'chirish |
+| GET | `/api/v1/branches/staff/stats/` | Statistika |
+| POST | `/api/v1/branches/staff/{id}/add_balance/` | Balans qo'shish |
+| POST | `/api/v1/branches/staff/{id}/pay_salary/` | Oylik to'lash |
 
-**Base URL:** `/api/branch/staff/`  
+**Base URL:** `/api/v1/branches/staff/`  
 **Auth:** Bearer token required
 
 ---
@@ -124,7 +148,7 @@ User → BranchMembership (Single Source of Truth)
 const { data } = useQuery({
   queryKey: ['staff'],
   queryFn: async () => {
-    const res = await fetch('/api/branch/staff/', { headers });
+    const res = await fetch('/api/v1/branches/staff/', { headers });
     return res.json();
   },
 });
@@ -134,7 +158,7 @@ const { data } = useQuery({
 ```typescript
 const createStaff = useMutation({
   mutationFn: async (data) => {
-    const res = await fetch('/api/branch/staff/', {
+    const res = await fetch('/api/v1/branches/staff/', {
       method: 'POST',
       headers,
       body: JSON.stringify(data),

@@ -359,6 +359,19 @@ CELERY_TASK_TRACK_STARTED = True
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_ENABLE_UTC = USE_TZ
 
+# Celery Beat Schedule - periodic tasks
+from celery.schedules import crontab
+
+CELERY_BEAT_SCHEDULE = {
+    'calculate-daily-salary-accrual': {
+        'task': 'apps.branch.tasks.calculate_daily_salary_accrual',
+        'schedule': crontab(hour=0, minute=0),  # Har kuni soat 00:00 da
+        'options': {
+            'expires': 3600,  # 1 soat ichida bajarilmasa bekor qilinsin
+        }
+    },
+}
+
 # OTP settings (Redis-backed)
 OTP_CODE_TTL_SECONDS = env.int("OTP_CODE_TTL_SECONDS", 120)  # 2 minutes
 OTP_REQUEST_COOLDOWN_SECONDS = env.int("OTP_REQUEST_COOLDOWN_SECONDS", 60)  # 1 minute

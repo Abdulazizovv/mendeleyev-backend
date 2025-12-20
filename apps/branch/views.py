@@ -4,7 +4,7 @@ from typing import Iterable
 
 from django.shortcuts import get_object_or_404
 from django.db import models
-from rest_framework import status
+from rest_framework import status, viewsets
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -13,8 +13,12 @@ from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIV
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
+from django_filters import rest_framework as filters
 
-from .models import Branch, BranchStatuses, BranchMembership, Role, BranchSettings
+from .models import (
+    Branch, BranchStatuses, BranchMembership, Role, BranchSettings, BranchRole,
+    BalanceTransaction, SalaryPayment
+)
 from .serializers import (
     BranchListSerializer,
     RoleSerializer,
@@ -22,6 +26,20 @@ from .serializers import (
     BranchMembershipDetailSerializer,
     BranchMembershipCreateSerializer,
     BalanceUpdateSerializer,
+    StaffListSerializer,
+    StaffDetailSerializer,
+    StaffCreateSerializer,
+    StaffUpdateSerializer,
+    BranchSettingsSerializer,
+    BalanceTransactionSerializer,
+    SalaryPaymentSerializer,
+    SalaryAccrualRequestSerializer,
+    BalanceChangeRequestSerializer,
+    SalaryPaymentRequestSerializer,
+    SalaryCalculationSerializer,
+    MonthlySalarySummarySerializer,
+    BalanceTransactionListSerializer,
+    SalaryPaymentListSerializer,
 )
 from .settings_serializers import (
     BranchSettingsSerializer,
@@ -30,6 +48,7 @@ from .settings_serializers import (
 from auth.users.models import User
 from apps.common.permissions import HasBranchRole, IsSuperAdmin, IsBranchAdmin
 from apps.common.mixins import AuditTrailMixin
+from .services import BalanceService, SalaryCalculationService, SalaryPaymentService
 
 
 class ManagedBranchesView(APIView):
@@ -533,7 +552,8 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from django.db.models import Q, Count, Avg
 from .serializers import (
-	StaffSerializer,
+	StaffListSerializer,
+	StaffDetailSerializer,
 	StaffCreateSerializer,
 	StaffUpdateSerializer,
 	BalanceTransactionSerializer,
@@ -571,11 +591,21 @@ class StaffViewSet(viewsets.ModelViewSet):
 			return StaffCreateSerializer
 		elif self.action in ['update', 'partial_update']:
 			return StaffUpdateSerializer
-		return StaffSerializer
+		elif self.action == 'retrieve':
+			return StaffDetailSerializer
+		elif self.action == 'list':
+			return StaffListSerializer
+		return StaffListSerializer
 	
 	def get_queryset(self):
-		"""Filter staff by branch access and active status."""
+		"""Filter staff by branch access and active status.
+		
+		Only returns staff members (excludes students and parents).
+		"""
 		qs = super().get_queryset()
+		
+		# IMPORTANT: Exclude students and parents - only staff
+		qs = qs.exclude(role__in=[BranchRole.STUDENT, BranchRole.PARENT])
 		
 		# Filter by branch if specified
 		branch_id = self.request.query_params.get('branch')
@@ -607,14 +637,15 @@ class StaffViewSet(viewsets.ModelViewSet):
 	@extend_schema(
 		summary="Yangi xodim qo'shish",
 		request=StaffCreateSerializer,
-		responses={201: StaffSerializer},
+		responses={201: StaffDetailSerializer},
 	)
 	def create(self, request, *args, **kwargs):
 		return super().create(request, *args, **kwargs)
 	
 	@extend_schema(
-		summary="Xodim ma'lumotlari",
-		responses={200: StaffSerializer},
+		summary="Xodim to'liq ma'lumotlari",
+		description="Xodimning barcha ma'lumotlari, tranzaksiyalari va to'lovlari bilan",
+		responses={200: StaffDetailSerializer},
 	)
 	def retrieve(self, request, *args, **kwargs):
 		return super().retrieve(request, *args, **kwargs)
@@ -622,7 +653,7 @@ class StaffViewSet(viewsets.ModelViewSet):
 	@extend_schema(
 		summary="Xodim ma'lumotlarini yangilash",
 		request=StaffUpdateSerializer,
-		responses={200: StaffSerializer},
+		responses={200: StaffDetailSerializer},
 	)
 	def partial_update(self, request, *args, **kwargs):
 		return super().partial_update(request, *args, **kwargs)
@@ -638,89 +669,580 @@ class StaffViewSet(viewsets.ModelViewSet):
 	
 	@extend_schema(
 		summary="Xodimlar statistikasi",
+		description="Filial bo'yicha to'liq xodimlar statistikasi",
+		parameters=[
+			OpenApiParameter('branch', type=str, description='Filial ID'),
+		],
 		responses={200: StaffStatsSerializer},
 	)
 	@action(detail=False, methods=['get'])
 	def stats(self, request):
-		"""Get staff statistics."""
+		"""Get comprehensive staff statistics."""
 		branch_id = request.query_params.get('branch')
 		qs = self.get_queryset()
 		
 		if branch_id:
 			qs = qs.filter(branch_id=branch_id)
 		
+		# Basic counts
 		total = qs.count()
 		active = qs.filter(termination_date__isnull=True).count()
 		terminated = qs.filter(termination_date__isnull=False).count()
 		
-		by_employment_type = qs.filter(termination_date__isnull=True).values(
-			'employment_type'
-		).annotate(count=Count('id'))
+		# Group by employment type (only active staff)
+		by_employment_type = list(
+			qs.filter(termination_date__isnull=True)
+			.values('employment_type')
+			.annotate(count=Count('id'))
+			.order_by('-count')
+		)
 		
-		by_role = qs.filter(termination_date__isnull=True).values(
-			'role_ref__name'
-		).annotate(count=Count('id'))
+		# Group by BranchRole (basic role type)
+		by_role = list(
+			qs.filter(termination_date__isnull=True)
+			.values('role')
+			.annotate(count=Count('id'))
+			.order_by('-count')
+		)
 		
-		avg_salary = qs.filter(termination_date__isnull=True).aggregate(
-			avg=Avg('monthly_salary')
-		)['avg'] or 0
+		# Group by Role model (detailed roles)
+		by_custom_role = list(
+			qs.filter(termination_date__isnull=True, role_ref__isnull=False)
+			.values('role_ref__id', 'role_ref__name')
+			.annotate(count=Count('id'))
+			.order_by('-count')
+		)
+		
+		# Financial statistics (only active staff)
+		active_qs = qs.filter(termination_date__isnull=True)
+		financial_stats = active_qs.aggregate(
+			avg_salary=Avg('monthly_salary'),
+			total_salary_budget=models.Sum('monthly_salary'),
+			total_balance=models.Sum('balance'),
+			max_salary=models.Max('monthly_salary'),
+			min_salary=models.Min('monthly_salary'),
+		)
+		
+		# Payment statistics (from SalaryPayment model)
+		from apps.branch.models import SalaryPayment
+		from apps.branch.choices import PaymentStatus
+		
+		# Get all salary payments for staff members
+		staff_ids = qs.values_list('id', flat=True)
+		payment_stats = SalaryPayment.objects.filter(
+			membership_id__in=staff_ids
+		).aggregate(
+			total_paid=models.Sum('amount', filter=models.Q(status=PaymentStatus.PAID)),
+			total_pending=models.Sum('amount', filter=models.Q(status=PaymentStatus.PENDING)),
+			paid_count=Count('id', filter=models.Q(status=PaymentStatus.PAID)),
+			pending_count=Count('id', filter=models.Q(status=PaymentStatus.PENDING)),
+		)
 		
 		data = {
+			# Xodimlar soni
 			'total_staff': total,
 			'active_staff': active,
 			'terminated_staff': terminated,
-			'by_employment_type': list(by_employment_type),
-			'by_role': list(by_role),
-			'average_salary': round(float(avg_salary), 2),
+			
+			# Lavozim bo'yicha
+			'by_employment_type': by_employment_type,
+			'by_role': by_role,
+			'by_custom_role': by_custom_role,
+			
+			# Maosh statistikasi
+			'average_salary': round(float(financial_stats['avg_salary'] or 0), 2),
+			'total_salary_budget': financial_stats['total_salary_budget'] or 0,  # Oylik umumiy maosh
+			'max_salary': financial_stats['max_salary'] or 0,
+			'min_salary': financial_stats['min_salary'] or 0,
+			
+			# To'lovlar statistikasi
+			'total_paid': payment_stats['total_paid'] or 0,  # Jami to'langan summa
+			'total_pending': payment_stats['total_pending'] or 0,  # Kutilayotgan to'lovlar
+			'paid_payments_count': payment_stats['paid_count'] or 0,  # To'langan to'lovlar soni
+			'pending_payments_count': payment_stats['pending_count'] or 0,  # Kutilayotgan to'lovlar soni
+			
+			# Balans statistikasi
+			'total_balance': financial_stats['total_balance'] or 0,  # Umumiy balans
 		}
 		
 		serializer = StaffStatsSerializer(data)
 		return Response(serializer.data)
 	
 	@extend_schema(
+		summary="Xodim balansini o'zgartirish",
+		description="""
+		Admin tomonidan xodim balansini qo'lda o'zgartirish.
+		
+		- Balansga qo'shish: salary_accrual, bonus, advance, adjustment
+		- Balansdan ayirish: deduction, fine
+		- Agar create_cash_transaction=true bo'lsa, kassadan pul chiqimi ham qayd qilinadi
+		- Faqat deduction va fine turlari uchun kassa tranzaksiyasi yaratiladi
+		""",
+		request=BalanceChangeRequestSerializer,
+		responses={200: StaffDetailSerializer},
+	)
+	@action(detail=True, methods=['post'], url_path='change-balance')
+	def change_balance(self, request, pk=None):
+		"""Change staff balance with optional cash register transaction."""
+		from .services import SalaryPaymentService
+		from .serializers import BalanceChangeRequestSerializer
+		
+		staff = self.get_object()
+		serializer = BalanceChangeRequestSerializer(data=request.data)
+		serializer.is_valid(raise_exception=True)
+		
+		try:
+			result = SalaryPaymentService.change_balance(
+				staff=staff,
+				transaction_type=serializer.validated_data['transaction_type'],
+				amount=serializer.validated_data['amount'],
+				description=serializer.validated_data['description'],
+				cash_register_id=serializer.validated_data.get('cash_register_id'),
+				create_cash_transaction=serializer.validated_data.get('create_cash_transaction', False),
+				payment_method=serializer.validated_data.get('payment_method', 'cash'),
+				reference=serializer.validated_data.get('reference', ''),
+				processed_by=request.user
+			)
+			
+			staff.refresh_from_db()
+			return Response({
+				'staff': StaffDetailSerializer(staff).data,
+				'balance_transaction_id': str(result['balance_transaction'].id),
+				'cash_transaction_id': str(result['cash_transaction'].id) if result['cash_transaction'] else None,
+				'previous_balance': result['previous_balance'],
+				'new_balance': result['new_balance']
+			})
+		
+		except ValueError as e:
+			return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+	
+	@extend_schema(
 		summary="Xodimga balans qo'shish",
 		request=BalanceTransactionSerializer,
-		responses={200: StaffSerializer},
+		responses={200: StaffDetailSerializer},
 	)
 	@action(detail=True, methods=['post'])
 	def add_balance(self, request, pk=None):
 		"""Add balance transaction to staff member."""
+		from .services import BalanceService
+		
 		staff = self.get_object()
 		serializer = BalanceTransactionSerializer(data=request.data)
 		serializer.is_valid(raise_exception=True)
 		
-		transaction = BalanceService.apply_transaction(
-			membership=staff,
-			amount=serializer.validated_data['amount'],
-			transaction_type=serializer.validated_data['transaction_type'],
-			description=serializer.validated_data.get('description', ''),
-			created_by=request.user
-		)
+		try:
+			transaction = BalanceService.apply_transaction(
+				membership=staff,
+				amount=serializer.validated_data['amount'],
+				transaction_type=serializer.validated_data['transaction_type'],
+				description=serializer.validated_data.get('description', ''),
+				reference=serializer.validated_data.get('reference', ''),
+				processed_by=request.user
+			)
+			
+			staff.refresh_from_db()
+			return Response(StaffDetailSerializer(staff).data)
 		
-		staff.refresh_from_db()
-		return Response(StaffSerializer(staff).data)
+		except ValueError as e:
+			return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 	
 	@extend_schema(
 		summary="Oylik to'lovini qayd qilish",
-		request=SalaryPaymentSerializer,
-		responses={200: StaffSerializer},
+		request=SalaryPaymentRequestSerializer,
+		responses={200: StaffDetailSerializer},
 	)
 	@action(detail=True, methods=['post'])
 	def pay_salary(self, request, pk=None):
-		"""Record salary payment for staff member."""
+		"""Process salary payment for staff member."""
+		from .services import SalaryPaymentService
+		from .serializers import SalaryPaymentRequestSerializer
+		
 		staff = self.get_object()
-		serializer = SalaryPaymentSerializer(data=request.data)
+		serializer = SalaryPaymentRequestSerializer(data=request.data)
 		serializer.is_valid(raise_exception=True)
 		
-		from .models import SalaryPayment
-		payment = SalaryPayment.objects.create(
-			membership=staff,
-			amount=serializer.validated_data['amount'],
-			payment_method=serializer.validated_data['payment_method'],
-			payment_status=serializer.validated_data.get('payment_status', 'completed'),
-			notes=serializer.validated_data.get('notes', ''),
-			paid_by=request.user
-		)
+		try:
+			result = SalaryPaymentService.process_salary_payment(
+				staff=staff,
+				amount=serializer.validated_data['amount'],
+				payment_date=serializer.validated_data['payment_date'],
+				payment_method=serializer.validated_data['payment_method'],
+				month=serializer.validated_data['month'],
+				payment_type=serializer.validated_data.get('payment_type', 'salary'),
+				notes=serializer.validated_data.get('notes', ''),
+				reference_number=serializer.validated_data.get('reference_number', ''),
+				processed_by=request.user
+			)
+			
+			staff.refresh_from_db()
+			response_data = StaffDetailSerializer(staff).data
+			response_data['payment_info'] = {
+				'payment_id': str(result['payment'].id),
+				'previous_balance': result['previous_balance'],
+				'new_balance': result['new_balance'],
+				'amount_paid': serializer.validated_data['amount']
+			}
+			
+			return Response(response_data)
 		
-		staff.refresh_from_db()
-		return Response(StaffSerializer(staff).data)
+		except ValueError as e:
+			return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+	
+	@extend_schema(
+		summary="Oylik maosh hisoblash",
+		parameters=[
+			OpenApiParameter('year', type=int, description='Yil'),
+			OpenApiParameter('month', type=int, description='Oy (1-12)'),
+		],
+		responses={200: SalaryCalculationSerializer},
+	)
+	@action(detail=True, methods=['get'], url_path='calculate-salary')
+	def calculate_salary(self, request, pk=None):
+		"""Calculate monthly salary for staff member."""
+		from .services import SalaryCalculationService
+		from .serializers import SalaryCalculationSerializer
+		from datetime import date
+		
+		staff = self.get_object()
+		
+		# Get year and month from query params or use current
+		today = date.today()
+		year = int(request.query_params.get('year', today.year))
+		month = int(request.query_params.get('month', today.month))
+		
+		result = SalaryCalculationService.calculate_monthly_accrual(staff, year, month)
+		serializer = SalaryCalculationSerializer(result)
+		
+		return Response(serializer.data)
+	
+	@extend_schema(
+		summary="Oylik maosh xulosasi",
+		parameters=[
+			OpenApiParameter('year', type=int, description='Yil'),
+			OpenApiParameter('month', type=int, description='Oy (1-12)'),
+		],
+		responses={200: MonthlySalarySummarySerializer},
+	)
+	@action(detail=True, methods=['get'], url_path='monthly-summary')
+	def monthly_summary(self, request, pk=None):
+		"""Get monthly salary summary for staff member."""
+		from .services import SalaryPaymentService
+		from .serializers import MonthlySalarySummarySerializer
+		from datetime import date
+		
+		staff = self.get_object()
+		
+		# Get year and month from query params or use current
+		today = date.today()
+		year = int(request.query_params.get('year', today.year))
+		month = int(request.query_params.get('month', today.month))
+		
+		summary = SalaryPaymentService.get_monthly_summary(staff, year, month)
+		serializer = MonthlySalarySummarySerializer(summary)
+		
+		return Response(serializer.data)
+
+
+class BranchSettingsViewSet(viewsets.ModelViewSet):
+	"""
+	ViewSet for managing branch settings.
+	
+	Endpoints:
+	- GET /branches/settings/ - List all branch settings (superadmin only)
+	- GET /branches/{branch_id}/settings/ - Get settings for specific branch
+	- PATCH /branches/{branch_id}/settings/ - Update branch settings
+	"""
+	
+	queryset = BranchSettings.objects.select_related('branch').all()
+	serializer_class = BranchSettingsSerializer
+	permission_classes = [IsAuthenticated, HasBranchRole]
+	lookup_field = 'branch_id'
+	http_method_names = ['get', 'patch', 'options', 'head']
+	
+	def get_queryset(self):
+		"""Filter settings by user's branch access."""
+		user = self.request.user
+		
+		# SuperAdmin can see all
+		if user.is_staff or hasattr(user, 'is_superadmin') and user.is_superadmin:
+			return self.queryset
+		
+		# BranchAdmin can see their branches
+		user_branches = BranchMembership.objects.filter(
+			user=user,
+			role=BranchRole.BRANCH_ADMIN,
+			deleted_at__isnull=True
+		).values_list('branch_id', flat=True)
+		
+		return self.queryset.filter(branch_id__in=user_branches)
+	
+	@extend_schema(
+		summary="Barcha filiallar sozlamalari",
+		description="Barcha filiallar sozlamalarini ko'rish (faqat superadmin)",
+	)
+	def list(self, request, *args, **kwargs):
+		return super().list(request, *args, **kwargs)
+	
+	@extend_schema(
+		summary="Filial sozlamalari",
+		description="Filialning to'liq sozlamalarini ko'rish",
+	)
+	def retrieve(self, request, *args, **kwargs):
+		return super().retrieve(request, *args, **kwargs)
+	
+	@extend_schema(
+		summary="Filial sozlamalarini yangilash",
+		description="Filial sozlamalarini o'zgartirish",
+		request=BranchSettingsSerializer,
+		responses={200: BranchSettingsSerializer},
+	)
+	def partial_update(self, request, *args, **kwargs):
+		return super().partial_update(request, *args, **kwargs)
+
+
+class BalanceTransactionFilter(filters.FilterSet):
+	"""Filter for balance transactions."""
+	
+	transaction_type = filters.ChoiceFilter(
+		field_name='transaction_type',
+		choices=[
+			('salary_accrual', 'Oylik hisoblash'),
+			('bonus', 'Bonus'),
+			('deduction', 'Balansdan chiqarish'),
+			('advance', 'Avans berish'),
+			('fine', 'Jarima'),
+			('adjustment', "To'g'rilash"),
+			('other', 'Boshqa'),
+		]
+	)
+	date_from = filters.DateFilter(field_name='created_at', lookup_expr='gte')
+	date_to = filters.DateFilter(field_name='created_at', lookup_expr='lte')
+	amount_min = filters.NumberFilter(field_name='amount', lookup_expr='gte')
+	amount_max = filters.NumberFilter(field_name='amount', lookup_expr='lte')
+	reference = filters.CharFilter(field_name='reference', lookup_expr='icontains')
+	membership = filters.UUIDFilter(field_name='membership__id')
+	processed_by = filters.UUIDFilter(field_name='processed_by__id')
+	
+	class Meta:
+		model = BalanceTransaction
+		fields = ['transaction_type', 'date_from', 'date_to', 'amount_min', 'amount_max', 'reference', 'membership', 'processed_by']
+
+
+class BalanceTransactionViewSet(viewsets.ReadOnlyModelViewSet):
+	"""ViewSet for viewing balance transactions.
+	
+	Read-only endpoints for viewing transaction history with filters and search.
+	Supports filtering by:
+	- transaction_type: Transaction type (salary, bonus, deduction, etc.)
+	- date_from/date_to: Date range filter
+	- amount_min/amount_max: Amount range filter
+	- reference: Search by reference number
+	- membership: Filter by staff member
+	- processed_by: Filter by processor
+	
+	Supports search by:
+	- description
+	- reference
+	- membership user's phone number
+	- membership user's full name
+	
+	Ordering:
+	- created_at (default: descending)
+	- amount
+	- transaction_type
+	"""
+	
+	queryset = BalanceTransaction.objects.select_related(
+		'membership', 'membership__user', 'processed_by', 'salary_payment'
+	).all()
+	serializer_class = BalanceTransactionListSerializer
+	permission_classes = [IsAuthenticated, HasBranchRole]
+	filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+	filterset_class = BalanceTransactionFilter
+	search_fields = ['description', 'reference', 'membership__user__phone_number', 'membership__user__first_name', 'membership__user__last_name']
+	ordering_fields = ['created_at', 'amount', 'transaction_type']
+	ordering = ['-created_at']
+	
+	def get_queryset(self):
+		"""Filter transactions by user's branch access."""
+		user = self.request.user
+		queryset = self.queryset
+		
+		# SuperAdmin can see all
+		if user.is_staff or hasattr(user, 'is_superadmin') and user.is_superadmin:
+			return queryset
+		
+		# BranchAdmin can see their branches
+		user_branches = BranchMembership.objects.filter(
+			user=user,
+			role=BranchRole.BRANCH_ADMIN,
+			deleted_at__isnull=True
+		).values_list('branch_id', flat=True)
+		
+		return queryset.filter(membership__branch_id__in=user_branches)
+	
+	@extend_schema(
+		summary="Barcha tranzaksiyalar ro'yxati",
+		description="Balans tranzaksiyalari ro'yxati - filter, qidiruv va tartiblash bilan",
+		parameters=[
+			OpenApiParameter('transaction_type', type=str, description='Tranzaksiya turi'),
+			OpenApiParameter('date_from', type=str, description='Boshlanish sanasi (YYYY-MM-DD)'),
+			OpenApiParameter('date_to', type=str, description='Tugash sanasi (YYYY-MM-DD)'),
+			OpenApiParameter('amount_min', type=int, description='Minimal summa'),
+			OpenApiParameter('amount_max', type=int, description='Maksimal summa'),
+			OpenApiParameter('reference', type=str, description='Referens raqami'),
+			OpenApiParameter('membership', type=str, description='Xodim ID'),
+			OpenApiParameter('processed_by', type=str, description="Kim qayd qilgan (user ID)"),
+			OpenApiParameter('search', type=str, description='Qidiruv (description, reference, phone, name)'),
+			OpenApiParameter('ordering', type=str, description='Tartiblash (-created_at, amount, transaction_type)'),
+		],
+	)
+	def list(self, request, *args, **kwargs):
+		return super().list(request, *args, **kwargs)
+	
+	@extend_schema(
+		summary="Tranzaksiya tafsilotlari",
+		description="Bitta tranzaksiyaning to'liq ma'lumotlari",
+	)
+	def retrieve(self, request, *args, **kwargs):
+		return super().retrieve(request, *args, **kwargs)
+
+
+class SalaryPaymentFilter(filters.FilterSet):
+	"""Filter for salary payments."""
+	
+	status = filters.ChoiceFilter(
+		field_name='status',
+		choices=[
+			('pending', 'Kutilmoqda'),
+			('paid', "To'langan"),
+			('cancelled', 'Bekor qilingan'),
+			('failed', 'Muvaffaqiyatsiz'),
+		]
+	)
+	payment_method = filters.ChoiceFilter(
+		field_name='payment_method',
+		choices=[
+			('cash', 'Naqd'),
+			('bank_transfer', "Bank o'tkazmasi"),
+			('card', 'Karta'),
+			('other', 'Boshqa'),
+		]
+	)
+	payment_type = filters.ChoiceFilter(
+		field_name='payment_type',
+		choices=[
+			('advance', "Avans to'lovi"),
+			('salary', "Oylik to'lovi"),
+			('bonus_payment', "Bonus to'lovi"),
+			('other', "Boshqa to'lov"),
+		]
+	)
+	month = filters.DateFilter(field_name='month')
+	month_from = filters.DateFilter(field_name='month', lookup_expr='gte')
+	month_to = filters.DateFilter(field_name='month', lookup_expr='lte')
+	payment_date_from = filters.DateFilter(field_name='payment_date', lookup_expr='gte')
+	payment_date_to = filters.DateFilter(field_name='payment_date', lookup_expr='lte')
+	amount_min = filters.NumberFilter(field_name='amount', lookup_expr='gte')
+	amount_max = filters.NumberFilter(field_name='amount', lookup_expr='lte')
+	reference_number = filters.CharFilter(field_name='reference_number', lookup_expr='icontains')
+	membership = filters.UUIDFilter(field_name='membership__id')
+	processed_by = filters.UUIDFilter(field_name='processed_by__id')
+	
+	class Meta:
+		model = SalaryPayment
+		fields = [
+			'status', 'payment_method', 'payment_type', 'month', 'month_from', 'month_to',
+			'payment_date_from', 'payment_date_to', 'amount_min', 'amount_max',
+			'reference_number', 'membership', 'processed_by'
+		]
+
+
+class SalaryPaymentViewSet(viewsets.ReadOnlyModelViewSet):
+	"""ViewSet for viewing salary payments.
+	
+	Read-only endpoints for viewing payment history with filters and search.
+	Supports filtering by:
+	- status: Payment status (pending, paid, cancelled)
+	- payment_method: Payment method (cash, bank_transfer, card, other)
+	- payment_type: Payment type (advance, salary, bonus_payment, other)
+	- month: Exact month (YYYY-MM-DD)
+	- month_from/month_to: Month range filter
+	- payment_date_from/payment_date_to: Payment date range
+	- amount_min/amount_max: Amount range filter
+	- reference_number: Search by reference number
+	- membership: Filter by staff member
+	- processed_by: Filter by processor
+	
+	Supports search by:
+	- notes
+	- reference_number
+	- membership user's phone number
+	- membership user's full name
+	
+	Ordering:
+	- payment_date (default: descending)
+	- created_at
+	- amount
+	- month
+	"""
+	
+	queryset = SalaryPayment.objects.select_related(
+		'membership', 'membership__user', 'processed_by'
+	).prefetch_related('transactions').all()
+	serializer_class = SalaryPaymentListSerializer
+	permission_classes = [IsAuthenticated, HasBranchRole]
+	filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+	filterset_class = SalaryPaymentFilter
+	search_fields = ['notes', 'reference_number', 'membership__user__phone_number', 'membership__user__first_name', 'membership__user__last_name']
+	ordering_fields = ['payment_date', 'created_at', 'amount', 'month']
+	ordering = ['-payment_date', '-created_at']
+	
+	def get_queryset(self):
+		"""Filter payments by user's branch access."""
+		user = self.request.user
+		queryset = self.queryset
+		
+		# SuperAdmin can see all
+		if user.is_staff or hasattr(user, 'is_superadmin') and user.is_superadmin:
+			return queryset
+		
+		# BranchAdmin can see their branches
+		user_branches = BranchMembership.objects.filter(
+			user=user,
+			role=BranchRole.BRANCH_ADMIN,
+			deleted_at__isnull=True
+		).values_list('branch_id', flat=True)
+		
+		return queryset.filter(membership__branch_id__in=user_branches)
+	
+	@extend_schema(
+		summary="Barcha to'lovlar ro'yxati",
+		description="Maosh to'lovlari ro'yxati - filter, qidiruv va tartiblash bilan",
+		parameters=[
+			OpenApiParameter('status', type=str, description="To'lov holati (pending, paid, cancelled)"),
+			OpenApiParameter('payment_method', type=str, description="To'lov usuli (cash, bank_transfer, card, other)"),
+			OpenApiParameter('payment_type', type=str, description="To'lov turi (advance, salary, bonus_payment, other)"),
+			OpenApiParameter('month', type=str, description='Oy (YYYY-MM-DD)'),
+			OpenApiParameter('month_from', type=str, description='Oydan (YYYY-MM-DD)'),
+			OpenApiParameter('month_to', type=str, description='Oygacha (YYYY-MM-DD)'),
+			OpenApiParameter('payment_date_from', type=str, description="To'lov sanasidan (YYYY-MM-DD)"),
+			OpenApiParameter('payment_date_to', type=str, description="To'lov sanasigacha (YYYY-MM-DD)"),
+			OpenApiParameter('amount_min', type=int, description='Minimal summa'),
+			OpenApiParameter('amount_max', type=int, description='Maksimal summa'),
+			OpenApiParameter('reference_number', type=str, description="To'lov raqami"),
+			OpenApiParameter('membership', type=str, description='Xodim ID'),
+			OpenApiParameter('processed_by', type=str, description='Kim tomonidan (user ID)'),
+			OpenApiParameter('search', type=str, description='Qidiruv (notes, reference, phone, name)'),
+			OpenApiParameter('ordering', type=str, description='Tartiblash (-payment_date, -created_at, amount, month)'),
+		],
+	)
+	def list(self, request, *args, **kwargs):
+		return super().list(request, *args, **kwargs)
+	
+	@extend_schema(
+		summary="To'lov tafsilotlari",
+		description="Bitta to'lovning to'liq ma'lumotlari",
+	)
+	def retrieve(self, request, *args, **kwargs):
+		return super().retrieve(request, *args, **kwargs)

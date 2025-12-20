@@ -52,16 +52,38 @@ class BaseModel(models.Model):
 
     objects = BaseManager()
 
+    def soft_delete(self, user=None):
+        """
+        Soft delete the object by setting deleted_at timestamp.
+        
+        Args:
+            user: Optional user performing the deletion (for audit trail)
+            
+        Returns:
+            self: The soft-deleted object
+        """
+        self.deleted_at = timezone.now()
+        if user:
+            self.updated_by = user
+        self.save(update_fields=['deleted_at', 'updated_at', 'updated_by'] if user else ['deleted_at', 'updated_at'])
+        return self
+
     def delete(self, using=None, keep_parents=False, hard=False):
         """
         Soft delete by default. Set hard=True for permanent deletion.
+        
+        Args:
+            using: Database alias
+            keep_parents: Keep parent models when deleting
+            hard: If True, permanently delete; if False (default), soft delete
+            
+        Returns:
+            self: The deleted object
         """
         if hard:
             return super().delete(using=using, keep_parents=keep_parents)
         
-        self.deleted_at = timezone.now()
-        self.save(update_fields=['deleted_at'])
-        return self
+        return self.soft_delete()
 
     def hard_delete(self, using=None, keep_parents=False):
         """Permanently delete the object"""

@@ -250,13 +250,20 @@ class BranchMembershipAdmin(admin.ModelAdmin):
 	)
 	inlines = [AdminProfileInline]
 	
+	actions = ['soft_delete_selected', 'restore_soft_deleted', 'hard_delete_selected']
+	
 	def get_queryset(self, request):
-		return super().get_queryset(request).select_related('user', 'branch', 'role_ref')
+		# Include soft-deleted in admin list, so staff can restore
+		qs = super().get_queryset(request)
+		return qs
 	
 	@admin.display(description='Xodim')
 	def user_display(self, obj):
 		name = obj.user.get_full_name() or obj.user.phone_number
-		return format_html('<strong>{}</strong><br/><small>{}</small>', name, obj.user.phone_number)
+		status = ''
+		if obj.deleted_at:
+			status = ' <span style="background:#d9534f;color:white;padding:2px 5px;border-radius:3px;font-size:10px;">O\'CHIRILGAN</span>'
+		return format_html('<strong>{}</strong><br/><small>{}</small>{}', name, obj.user.phone_number, status)
 	
 	@admin.display(description='Rol')
 	def role_display(self, obj):
@@ -289,19 +296,52 @@ class BranchMembershipAdmin(admin.ModelAdmin):
 		if not obj.hire_date:
 			return format_html('<span style="color:#999;">Ma\'lumot yo\'q</span>')
 		
+		if obj.deleted_at:
+			return format_html(
+				'<span style="color:#d9534f;font-weight:bold;">O\'chirilgan</span><br/>'
+				'<small>Chiqish: {}</small>',
+				obj.termination_date.strftime('%Y-%m-%d') if obj.termination_date else 'N/A'
+			)
+		
 		if obj.termination_date:
 			return format_html('<span style="color:#d9534f;">Ishdan chiqqan</span>')
 		
 		return format_html('<span style="color:#090;">Ishlamoqda</span>')
+	
+	# Actions
+	@admin.action(description=_('Tanlanganlarni soft delete qilish (ishdan chiqarish)'))
+	def soft_delete_selected(self, request, queryset):
+		count = 0
+		for obj in queryset.filter(deleted_at__isnull=True):
+			obj.soft_delete(user=request.user)
+			count += 1
+		self.message_user(request, _(f"{count} ta xodim ishdan chiqarildi (soft delete)"))
+	
+	@admin.action(description=_('Tanlanganlarni tiklash (qayta ishga olish)'))
+	def restore_soft_deleted(self, request, queryset):
+		restored = 0
+		for obj in queryset.filter(deleted_at__isnull=False):
+			obj.restore()
+			restored += 1
+		self.message_user(request, _(f"{restored} ta xodim qayta ishga olindi"))
+	
+	@admin.action(description=_('Tanlanganlarni butunlay o\'chirish (hard delete)'))
+	def hard_delete_selected(self, request, queryset):
+		count = 0
+		for obj in queryset:
+			obj.hard_delete()
+			count += 1
+		self.message_user(request, _(f"{count} ta xodim butunlay o\'chirildi (hard delete)"))
 
 
 @admin.register(BalanceTransaction)
 class BalanceTransactionAdmin(admin.ModelAdmin):
 	list_display = (
 		"staff_display", "transaction_type_display", "amount_display", 
-		"balance_change", "reference", "created_at"
+		"balance_change", "reference", "deleted_badge", "created_at"
 	)
 	list_filter = ("transaction_type", "created_at", "membership__branch")
+	actions = ['restore_soft_deleted', 'hard_delete_selected']
 	search_fields = (
 		"membership__user__phone_number", "membership__user__first_name", 
 		"membership__user__last_name", "reference", "description"
@@ -336,6 +376,12 @@ class BalanceTransactionAdmin(admin.ModelAdmin):
 		name = obj.membership.user.get_full_name() or obj.membership.user.phone_number
 		return format_html('<strong>{}</strong><br/><small>{}</small>', name, obj.membership.branch.name)
 	
+	@admin.display(description='Holat', boolean=False)
+	def deleted_badge(self, obj):
+		if obj.deleted_at:
+			return format_html('<span style="background:#d9534f;color:white;padding:2px 5px;border-radius:3px;">O\'CHIRILGAN</span>')
+		return format_html('<span style="color:#090;">✓ Faol</span>')
+	
 	@admin.display(description='Tur')
 	def transaction_type_display(self, obj):
 		colors = {
@@ -369,15 +415,31 @@ class BalanceTransactionAdmin(admin.ModelAdmin):
 			sign,
 			f"{change:_}"
 		)
+	
+	@admin.action(description=_('Tanlanganlarni tiklash'))
+	def restore_soft_deleted(self, request, queryset):
+		restored = 0
+		for obj in queryset.filter(deleted_at__isnull=False):
+			obj.restore()
+			restored += 1
+		self.message_user(request, _(f"{restored} ta tranzaksiya tiklandi"))
+	
+	@admin.action(description=_('Tanlanganlarni butunlay o\'chirish'))
+	def hard_delete_selected(self, request, queryset):
+		count = queryset.count()
+		for obj in queryset:
+			obj.hard_delete()
+		self.message_user(request, _(f"{count} ta tranzaksiya butunlay o\'chirildi"))
 
 
 @admin.register(SalaryPayment)
 class SalaryPaymentAdmin(admin.ModelAdmin):
 	list_display = (
 		"staff_display", "month", "amount_display", "payment_date", 
-		"payment_method_display", "status_badge", "created_at"
+		"payment_method_display", "status_badge", "deleted_badge", "created_at"
 	)
 	list_filter = ("status", "payment_method", "payment_date", "membership__branch")
+	actions = ['restore_soft_deleted', 'hard_delete_selected']
 	search_fields = (
 		"membership__user__phone_number", "membership__user__first_name",
 		"membership__user__last_name", "reference_number", "notes"
@@ -434,5 +496,26 @@ class SalaryPaymentAdmin(admin.ModelAdmin):
 			color,
 			obj.get_status_display()
 		)
+	
+	@admin.display(description='Deleted', boolean=False)
+	def deleted_badge(self, obj):
+		if obj.deleted_at:
+			return format_html('<span style="background:#d9534f;color:white;padding:2px 5px;border-radius:3px;">O\'CHIRILGAN</span>')
+		return format_html('<span style="color:#090;">✓ Faol</span>')
+	
+	@admin.action(description=_('Tanlanganlarni tiklash'))
+	def restore_soft_deleted(self, request, queryset):
+		restored = 0
+		for obj in queryset.filter(deleted_at__isnull=False):
+			obj.restore()
+			restored += 1
+		self.message_user(request, _(f"{restored} ta to'lov tiklandi"))
+	
+	@admin.action(description=_('Tanlanganlarni butunlay o\'chirish'))
+	def hard_delete_selected(self, request, queryset):
+		count = queryset.count()
+		for obj in queryset:
+			obj.hard_delete()
+		self.message_user(request, _(f"{count} ta to'lov butunlay o\'chirildi"))
 
 
