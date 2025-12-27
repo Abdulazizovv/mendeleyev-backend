@@ -4,6 +4,10 @@ from django.db import models
 from django.conf import settings
 from django.core.validators import RegexValidator
 from apps.common.models import BaseModel
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+	from apps.branch.models import BranchMembership
 
 
 class Gender(models.TextChoices):
@@ -88,7 +92,7 @@ class StudentProfile(BaseModel):
 	
 	Maktab o'quvchilarining barcha ma'lumotlari shu modelda saqlanadi.
 	"""
-	user_branch = models.OneToOneField(
+	user_branch: BranchMembership = models.OneToOneField(
 		'branch.BranchMembership',
 		on_delete=models.CASCADE,
 		related_name='student_profile',

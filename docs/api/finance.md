@@ -1,35 +1,133 @@
 # Moliya Tizimi API
 
-Moliya tizimi o'quvchilar va xodimlar uchun balans, tranzaksiyalar, to'lovlar, abonement tariflari va chegirmalarni boshqarish uchun API'lar.
+Moliya tizimi o'quvchilar va xodimlar uchun balans, tranzaksiyalar, to'lovlar, abonement tariflari, chegirmalar va dinamik kategoriyalarni boshqarish uchun API'lar.
 
 ## Umumiy Ma'lumotlar
 
 - **Base URL**: `/api/v1/school/finance/`
 - **Authentication**: JWT Token talab qilinadi
-- **Permissions**: `CanManageFinance` (Super Admin, Branch Admin)
+- **Permissions**: `CanManageFinance`, `CanViewFinanceReports`, `CanManageCategories`
 - **Valyuta**: So'm (butun sonlar, `BigIntegerField`)
+
+## Yangiliklar (2025-12-22)
+
+✅ **Dinamik Kategoriyalar Tizimi:**
+- 28 ta default global kategoriya (10 kirim, 18 chiqim)
+- Branch-specific kategoriyalar yaratish imkoniyati
+- Ierarxik tuzilma (parent/child relationships)
+- Transaction modelda category FK field
+
+✅ **Ruxsatlar Tizimi:**
+- `VIEW_FINANCE_REPORTS` - Hisobotlarni ko'rish
+- `MANAGE_FINANCE` - Moliyani boshqarish
+- `MANAGE_CATEGORIES` - Kategoriyalarni boshqarish
+
+✅ **Bug Fixes:**
+- Permission classes: MultipleObjectsReturned xatosi tuzatildi
+- Middleware: Branch isolation yangilandi
+- Role field: select_related xatosi tuzatildi
+
+✅ **Auto Branch Assignment:**
+- Obyekt yaratishda `branch` berilmasa, avtomatik `request.branch` dan olinadi
+- `X-Branch-Id` header yoki JWT tokendan branch aniqlash
+- Super admin global obyektlar (branch=null) yaratishi mumkin
 
 ## Modellar
 
-### 1. CashRegister (Kassa)
+### 1. FinanceCategory (Moliya Kategoriyasi) 🆕
+Dinamik kategoriyalar tizimi. Global va branch-specific kategoriyalar.
+
+**Xususiyatlar:**
+- Global kategoriyalar (branch=null): 28 ta default
+- Filial kategoriyalari: Har bir filial o'z kategoriyalarini yaratishi mumkin
+- Ierarxiya: parent/child relationships
+- Unique constraint: (branch, type, code)
+
+### 2. CashRegister (Kassa)
 Har bir filial o'ziga bir nechta kassa yaratishi mumkin.
 
-### 2. Transaction (Tranzaksiya)
+### 3. Transaction (Tranzaksiya)
 Barcha moliyaviy operatsiyalar uchun asosiy model.
 
-### 3. StudentBalance (O'quvchi Balansi)
+**Yangi field:** `category` (ForeignKey to FinanceCategory)
+
+### 4. StudentBalance (O'quvchi Balansi)
 Har bir o'quvchi uchun alohida balans.
 
-### 4. SubscriptionPlan (Abonement Tarifi)
+### 5. SubscriptionPlan (Abonement Tarifi)
 Sinf darajasi bo'yicha abonement tariflari. Agar `branch` bo'sh bo'lsa, umumiy tarif (barcha filiallar uchun).
 
-### 5. Discount (Chegirma)
+### 6. Discount (Chegirma)
 Foiz yoki aniq summa. Agar `branch` bo'sh bo'lsa, umumiy chegirma (barcha filiallar uchun).
 
-### 6. Payment (To'lov)
+### 7. Payment (To'lov)
 O'quvchilarning to'lovlari.
 
 ## API Endpoints
+
+### 🆕 Kategoriyalar (Categories)
+
+> **To'liq dokumentatsiya:** [finance-category-api.md](../finance-category-api.md)
+
+#### Kategoriyalar ro'yxati
+```
+GET /api/v1/school/finance/categories/
+```
+
+**Query Parameters:**
+- `type` (string, optional): income | expense
+- `is_active` (boolean, optional): true | false
+- `is_global` (boolean, optional): true | false
+- `parent` (UUID, optional): Ota kategoriya ID
+- `search` (string, optional): Qidirish (nom, kod)
+
+**Response:**
+```json
+{
+  "count": 30,
+  "results": [
+    {
+      "id": "uuid",
+      "branch": null,
+      "branch_name": "Global",
+      "type": "income",
+      "code": "student_payment",
+      "name": "O'quvchi to'lovi",
+      "description": "O'quvchilardan tushadigan asosiy to'lovlar",
+      "parent": null,
+      "parent_name": null,
+      "subcategories_count": 0,
+      "is_active": true,
+      "created_at": "2025-12-22T10:00:00Z",
+      "updated_at": "2025-12-22T10:00:00Z"
+    }
+  ]
+}
+```
+
+#### Kategoriya yaratish
+```
+POST /api/v1/school/finance/categories/
+```
+
+**Request Body:**
+```json
+{
+  "name": "Maxsus xarajat",
+  "type": "expense",
+  "code": "custom_expense",
+  "description": "Filial uchun maxsus xarajat",
+  "parent": null,
+  "is_active": true
+}
+```
+
+**Permissions:**
+- Super Admin: Global va barcha filial kategoriyalarini boshqaradi
+- Branch Admin: Faqat o'z filiali kategoriyalarini boshqaradi
+- Xodim: `manage_categories` ruxsati kerak
+
+---
 
 ### Kassalar (Cash Registers)
 
@@ -112,6 +210,7 @@ GET /api/v1/school/finance/transactions/
 - `transaction_type` (string, optional): Tranzaksiya turi (`income`, `expense`, `transfer`, `payment`, `salary`, `refund`)
 - `status` (string, optional): Holat (`pending`, `completed`, `cancelled`, `failed`)
 - `cash_register` (UUID, optional): Kassa ID
+- `category` (UUID, optional): Kategoriya ID 🆕
 - `search` (string, optional): Qidirish (tavsif, referens raqami)
 - `ordering` (string, optional): Tartiblash (`amount`, `transaction_date`, `created_at`, `-amount`, `-transaction_date`, `-created_at`)
 
@@ -128,6 +227,8 @@ GET /api/v1/school/finance/transactions/
       "branch_name": "Filial nomi",
       "cash_register": "uuid",
       "cash_register_name": "Kassa nomi",
+      "category": "uuid",
+      "category_name": "O'quvchi to'lovi",
       "transaction_type": "payment",
       "transaction_type_display": "To'lov",
       "status": "completed",
@@ -161,6 +262,7 @@ POST /api/v1/school/finance/transactions/
   "branch": "uuid",
   "cash_register": "uuid",
   "transaction_type": "income",
+  "category": "uuid",
   "amount": 1000000,
   "payment_method": "cash",
   "description": "Tavsif",
@@ -171,6 +273,11 @@ POST /api/v1/school/finance/transactions/
   "metadata": {}
 }
 ```
+
+**Validatsiya:**
+- ✅ `category.type` va `transaction_type` mos kelishi kerak (income → income, expense → expense)
+- ✅ Kategoriya aktiv bo'lishi kerak (`is_active=true`)
+- ✅ Kategoriya filialga tegishli yoki global bo'lishi kerak
 
 **Transaction Types:**
 - `income` - Kirim
@@ -564,33 +671,50 @@ GET /api/v1/school/finance/statistics/
 
 1. **Valyuta**: Barcha summalar so'm (butun sonlar) formatida.
 2. **Umumiy Tariflar va Chegirmalar**: Agar `branch` `null` bo'lsa, bu umumiy (barcha filiallar uchun).
-3. **Tranzaksiyalar**: Har bir to'lov avtomatik tranzaksiya yaratadi va kassa balansini yangilaydi.
-4. **O'quvchi Balansi**: 
+3. **Kategoriyalar**: 28 ta default global kategoriya mavjud. Har bir filial o'z kategoriyalarini yaratishi mumkin.
+4. **Avtomatik Branch**: 
+   - Obyekt yaratishda `branch` fieldini ko'rsatmasangiz, avtomatik requestdan olinadi
+   - `X-Branch-Id` header, JWT token, yoki middleware orqali branch aniqlash
+   - Super admin uchun: `branch` berilmasa, global obyekt yaratiladi (branch=null)
+5. **Tranzaksiyalar**: 
+   - Har bir to'lov avtomatik tranzaksiya yaratadi va kassa balansini yangilaydi
+   - `category` field orqali kategoriyaga bog'lanadi
+   - Kategoriya turi va tranzaksiya turi mos kelishi kerak
+6. **O'quvchi Balansi**: 
    - Har bir to'lov o'quvchi balansini avtomatik yangilaydi
    - `StudentProfile` yaratilganda `StudentBalance` avtomatik yaratiladi (signal orqali)
-5. **Chegirmalar**: Chegirmalar foiz yoki aniq summa bo'lishi mumkin. Sana cheklovlari ham mavjud.
-6. **Pagination**: Barcha list endpointlar pagination qo'llab-quvvatlaydi (default: 20, max: 100)
-7. **Filtering, Search, Ordering**: Barcha list endpointlar filtering, search va ordering qo'llab-quvvatlaydi
+7. **Chegirmalar**: Chegirmalar foiz yoki aniq summa bo'lishi mumkin. Sana cheklovlari ham mavjud.
+8. **Pagination**: Barcha list endpointlar pagination qo'llab-quvvatlaydi (default: 20, max: 100)
+9. **Filtering, Search, Ordering**: Barcha list endpointlar filtering, search va ordering qo'llab-quvvatlaydi
+10. **Permissions**: 
+    - `VIEW_FINANCE_REPORTS` - Hisobotlarni ko'rish
+    - `MANAGE_FINANCE` - Moliyani boshqarish
+    - `MANAGE_CATEGORIES` - Kategoriyalarni boshqarish
 
 ## Misol So'rovlar
 
 ### 1. Kassa yaratish va to'lov qilish
 
 ```bash
-# 1. Kassa yaratish
+```bash
+# 1. Kassa yaratish (branch avtomatik olinadi)
 POST /api/v1/school/finance/cash-registers/
+Headers: 
+  Authorization: Bearer <token>
+  X-Branch-Id: <branch_uuid>
+Body:
 {
-  "branch": "uuid",
   "name": "Asosiy kassa",
   "description": "Asosiy kassa",
   "location": "1-qavat",
   "is_active": true
 }
+# branch fieldini ko'rsatmadingiz - avtomatik X-Branch-Id dan olinadi
 
-# 2. Abonement tarifi yaratish
+# 2. Abonement tarifi yaratish (branch ko'rsatilgan)
 POST /api/v1/school/finance/subscription-plans/
 {
-  "branch": "uuid",
+  "branch": "uuid",  # Agar berilmasa, X-Branch-Id dan olinadi
   "name": "1-4 sinflar oylik tarifi",
   "grade_level_min": 1,
   "grade_level_max": 4,
@@ -599,10 +723,27 @@ POST /api/v1/school/finance/subscription-plans/
   "is_active": true
 }
 
-# 3. Chegirma yaratish (optional)
-POST /api/v1/school/finance/discounts/
+# 3. Global tarif yaratish (super admin)
+POST /api/v1/school/finance/subscription-plans/
+Headers: 
+  Authorization: Bearer <super_admin_token>
+Body:
 {
-  "branch": "uuid",
+  # branch fieldini berilmasa va super admin bo'lsa: global tarif (branch=null)
+  "name": "Barcha filiallar uchun",
+  "grade_level_min": 1,
+  "grade_level_max": 11,
+  "period": "monthly",
+  "price": 1500000,
+  "is_active": true
+}
+
+# 4. Chegirma yaratish (branch avtomatik)
+POST /api/v1/school/finance/discounts/
+Headers: 
+  X-Branch-Id: <branch_uuid>
+Body:
+{
   "name": "Yangi o'quvchilar uchun chegirma",
   "discount_type": "percentage",
   "amount": 10,
@@ -611,11 +752,11 @@ POST /api/v1/school/finance/discounts/
   "valid_until": "2024-12-31T23:59:59Z"
 }
 
-# 4. To'lov yaratish
+# 5. To'lov yaratish
 POST /api/v1/school/finance/payments/
 {
   "student_profile": "uuid",
-  "branch": "uuid",
+  # branch berilmasa, headerdan olinadi
   "subscription_plan": "uuid",
   "base_amount": 1400000,
   "discount": "uuid",
@@ -634,34 +775,39 @@ POST /api/v1/school/finance/payments/
 # - O'quvchi balansi yangilanadi
 ```
 
-### 2. Tranzaksiya yaratish (to'lovdan tashqari)
+### 2. Kategoriya bilan Tranzaksiya yaratish 🆕
 
 ```bash
-# Kirim
+# Kirim - Kategoriya bilan
 POST /api/v1/school/finance/transactions/
 {
   "branch": "uuid",
   "cash_register": "uuid",
   "transaction_type": "income",
+  "category": "uuid",  # student_payment kategoriyasi
   "amount": 5000000,
   "payment_method": "cash",
-  "description": "Qo'shimcha kirim",
+  "description": "O'quvchi oylik to'lovi",
   "reference_number": "REF-001",
   "transaction_date": "2024-01-01T00:00:00Z"
 }
 
-# Chiqim (masalan, maosh)
+# Chiqim - Kategoriya bilan (masalan, maosh)
 POST /api/v1/school/finance/transactions/
 {
   "branch": "uuid",
   "cash_register": "uuid",
-  "transaction_type": "salary",
+  "transaction_type": "expense",
+  "category": "uuid",  # salary kategoriyasi
   "amount": 3000000,
   "payment_method": "bank_transfer",
   "description": "O'qituvchi maoshi",
   "employee_membership": "uuid",
   "transaction_date": "2024-01-01T00:00:00Z"
 }
+
+# Kategoriya bo'yicha filtrlash
+GET /api/v1/school/finance/transactions/?branch_id=uuid&category=uuid
 ```
 
 ### 3. Statistika olish
@@ -677,6 +823,15 @@ GET /api/v1/school/finance/statistics/?branch_id=uuid&start_date=2024-01-01&end_
 ### 4. Filtering va Search
 
 ```bash
+# Kategoriyalar - Faqat kirim
+GET /api/v1/school/finance/categories/?type=income&is_active=true
+
+# Kategoriyalar - Faqat global
+GET /api/v1/school/finance/categories/?is_global=true
+
+# Kategoriyalar - Qidiruv
+GET /api/v1/school/finance/categories/?search=maosh
+
 # Faol tariflar
 GET /api/v1/school/finance/subscription-plans/?branch_id=uuid&is_active=true
 
@@ -686,8 +841,8 @@ GET /api/v1/school/finance/discounts/?branch_id=uuid&is_active=true
 # O'quvchi to'lovlari
 GET /api/v1/school/finance/payments/?branch_id=uuid&student_profile=uuid
 
-# Tranzaksiyalar (kirim)
-GET /api/v1/school/finance/transactions/?branch_id=uuid&transaction_type=income&status=completed
+# Tranzaksiyalar (kirim, kategoriya bilan)
+GET /api/v1/school/finance/transactions/?branch_id=uuid&transaction_type=income&category=uuid&status=completed
 
 # Qidirish
 GET /api/v1/school/finance/cash-registers/?branch_id=uuid&search=asosiy
@@ -701,17 +856,38 @@ GET /api/v1/school/finance/payments/?branch_id=uuid&ordering=-payment_date
 
 Quyidagi modellar signallar orqali avtomatik yaratiladi:
 
-1. **StudentBalance** - `StudentProfile` yaratilganda avtomatik yaratiladi
+1. **FinanceCategory** - Migration orqali 28 ta global kategoriya yaratiladi
+   - 10 ta kirim kategoriyasi (student_payment, course_fee, ...)
+   - 18 ta chiqim kategoriyasi (salary, rent, utilities, ...)
+   - Migration: `0004_load_default_categories.py`
+
+2. **StudentBalance** - `StudentProfile` yaratilganda avtomatik yaratiladi
    - Default balance: 0 so'm
    - Signal: `apps.school.finance.signals.create_student_balance`
 
-2. **BranchSettings** - `Branch` yaratilganda avtomatik yaratiladi
+3. **BranchSettings** - `Branch` yaratilganda avtomatik yaratiladi
    - Signal: `apps.branch.signals.create_branch_settings`
 
 ## Xavfsizlik va Ruxsatlar
 
 - Barcha endpointlar JWT autentifikatsiyani talab qiladi
-- `CanManageFinance` permission talab qilinadi (Super Admin, Branch Admin)
-- Har bir so'rovda `branch_id` talab qilinadi (JWT claim, header yoki query param)
+- **Ruxsatlar:**
+  - `CanViewFinanceReports` - Hisobotlarni ko'rish (Super Admin, Branch Admin, Xodim with permission)
+  - `CanManageFinance` - Moliyani boshqarish (Super Admin, Branch Admin, Xodim with permission)
+  - `CanManageCategories` - Kategoriyalarni boshqarish (Super Admin, Branch Admin, Xodim with permission)
+- Har bir so'rovda `X-Branch-Id` header talab qilinadi (ba'zi endpointlar uchun)
 - Filialga tegishli ma'lumotlar faqat o'sha filial adminlari ko'ra oladi
+- Super admin barcha filiallarga kirishi mumkin
+- **Branch Isolation Middleware:** Avtomatik ravishda `request.branch` va `request.membership` o'rnatadi
+
+## Qo'shimcha Dokumentatsiya
+
+- **Kategoriyalar API:** [finance-category-api.md](../finance-category-api.md) - To'liq dokumentatsiya
+- **Bug Fixes:** Permission classes va middleware xatolari tuzatildi (2025-12-22)
+- **Migration Path:** Eski CharField category → Yangi ForeignKey category
+
+---
+
+**Last Updated:** 2025-12-22  
+**Version:** 1.1.0 (Dinamik Kategoriyalar Tizimi)
 

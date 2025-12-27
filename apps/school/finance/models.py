@@ -11,7 +11,61 @@ from django.utils import timezone
 from apps.common.models import BaseModel
 from apps.branch.models import Branch, BranchMembership
 from auth.profiles.models import StudentProfile
-from .choices import IncomeCategory, ExpenseCategory
+from .choices import IncomeCategory, ExpenseCategory, CategoryType
+
+
+class FinanceCategory(BaseModel):
+    """
+    Moliya kategoriyasi (dinamik).
+    
+    Har bir filial o'z kategoriyalarini yaratishi mumkin.
+    Global kategoriyalar (branch=None) barcha filiallar uchun.
+    """
+    branch = models.ForeignKey(
+        Branch,
+        on_delete=models.CASCADE,
+        related_name='finance_categories',
+        null=True,
+        blank=True,
+        verbose_name="Filial",
+        help_text="Filial (bo'sh bo'lsa global kategoriya)"
+    )
+    type = models.CharField(
+        max_length=10,
+        choices=CategoryType.choices,
+        verbose_name="Tur"
+    )
+    name = models.CharField(
+        max_length=100,
+        verbose_name="Nomi"
+    )
+    description = models.TextField(
+        blank=True,
+        verbose_name="Tavsif"
+    )
+    parent = models.ForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='subcategories',
+        verbose_name="Ota kategoriya"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name="Faol"
+    )
+    
+    class Meta:
+        db_table = 'finance_category'
+        verbose_name = 'Moliya kategoriyasi'
+        verbose_name_plural = 'Moliya kategoriyalari'
+        unique_together = [['branch', 'type', 'name']]
+        ordering = ['type', 'name']
+    
+    def __str__(self):
+        branch_str = f"{self.branch.name}" if self.branch else "Global"
+        return f"{branch_str} - {self.get_type_display()} - {self.name}"
 
 
 class TransactionType(models.TextChoices):
@@ -114,12 +168,30 @@ class CashRegister(BaseModel):
         return f"{self.name} ({self.branch.name})"
     
     def update_balance(self, amount: int, transaction_type: str):
-        """Kassa balansini yangilash."""
+        """
+        Kassa balansini yangilash.
+        
+        F() expressions bilan atomic update - race condition safe.
+        Database-level operation, Python-level lock yo'q.
+        """
+        from django.db.models import F
+        from django.utils import timezone
+        
         if transaction_type in [TransactionType.INCOME, TransactionType.PAYMENT]:
-            self.balance += amount
+            # Atomic increment
+            CashRegister.objects.filter(id=self.id).update(
+                balance=F('balance') + amount,
+                updated_at=timezone.now()
+            )
         elif transaction_type in [TransactionType.EXPENSE, TransactionType.SALARY]:
-            self.balance -= amount
-        self.save(update_fields=['balance', 'updated_at'])
+            # Atomic decrement
+            CashRegister.objects.filter(id=self.id).update(
+                balance=F('balance') - amount,
+                updated_at=timezone.now()
+            )
+        
+        # Yangi qiymatni olish
+        self.refresh_from_db()
 
 
 class Transaction(BaseModel):
@@ -156,29 +228,40 @@ class Transaction(BaseModel):
         verbose_name='Holat'
     )
     
-    # Kirim va chiqim kategoriyalari
+    # Kirim va chiqim kategoriyalari (DEPRECATED - eski hardcoded)
     income_category = models.CharField(
         max_length=50,
         choices=IncomeCategory.choices,
         null=True,
         blank=True,
-        verbose_name='Kirim turi',
-        help_text='Agar tranzaksiya kirim bo\'lsa'
+        verbose_name='Kirim turi (eski)',
+        help_text='DEPRECATED: Eski hardcoded kategoriya'
     )
     expense_category = models.CharField(
         max_length=50,
         choices=ExpenseCategory.choices,
         null=True,
         blank=True,
-        verbose_name='Chiqim turi',
-        help_text='Agar tranzaksiya chiqim bo\'lsa'
+        verbose_name='Chiqim turi (eski)',
+        help_text='DEPRECATED: Eski hardcoded kategoriya'
+    )
+    
+    # Yangi dinamik kategoriya
+    category = models.ForeignKey(
+        'FinanceCategory',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='transactions',
+        verbose_name='Kategoriya',
+        help_text='Dinamik moliya kategoriyasi'
     )
     
     # Summa
     amount = models.BigIntegerField(
-        validators=[MinValueValidator(1)],
+        validators=[MinValueValidator(1), MaxValueValidator(1_000_000_000)],
         verbose_name='Summa',
-        help_text='Tranzaksiya summasi (so\'m, butun son)'
+        help_text='Tranzaksiya summasi (so\'m, butun son, max 1 milliard)'
     )
     
     # To'lov usuli
@@ -256,22 +339,35 @@ class Transaction(BaseModel):
     
     def save(self, *args, **kwargs):
         """Tranzaksiyani saqlash va kassa balansini yangilash."""
-        is_new = self.pk is None
+        # Django _state.adding - yangi obyekt yoki mavjud obyektni aniqlash
+        is_new = self._state.adding
+        old_status = None
+        
+        # Agar yangi emas bo'lsa, eski statusni olish
+        if not is_new and self.pk:
+            try:
+                old_instance = Transaction.objects.get(pk=self.pk)
+                old_status = old_instance.status
+            except Transaction.DoesNotExist:
+                pass
+        
+        # Avval saqlash
+        super().save(*args, **kwargs)
         
         # Agar yangi tranzaksiya bo'lsa va status COMPLETED bo'lsa
-        if is_new and self.status == TransactionStatus.COMPLETED:
+        # yoki status PENDING dan COMPLETED ga o'zgargan bo'lsa
+        if (is_new and self.status == TransactionStatus.COMPLETED) or \
+           (not is_new and old_status == TransactionStatus.PENDING and self.status == TransactionStatus.COMPLETED):
             self.cash_register.update_balance(self.amount, self.transaction_type)
-        
-        super().save(*args, **kwargs)
     
     def complete(self):
         """Tranzaksiyani bajarilgan deb belgilash."""
         if self.status == TransactionStatus.COMPLETED:
             return
         
+        # save() metodi avtomatik ravishda balansni yangilaydi
         self.status = TransactionStatus.COMPLETED
         self.save(update_fields=['status', 'updated_at'])
-        self.cash_register.update_balance(self.amount, self.transaction_type)
     
     def cancel(self):
         """Tranzaksiyani bekor qilish."""
@@ -662,4 +758,209 @@ class Payment(BaseModel):
     
     def __str__(self):
         return f"{self.student_profile} - {self.final_amount} so'm ({self.payment_date.strftime('%Y-%m-%d')})"
+
+
+class StudentSubscription(BaseModel):
+    """O'quvchining abonement tariflari.
+    
+    O'quvchi bir yoki bir nechta abonement tarifiga ega bo'lishi mumkin.
+    Har bir abonement uchun to'lov davrini va qarzlarni boshqaradi.
+    """
+    
+    student_profile = models.ForeignKey(
+        StudentProfile,
+        on_delete=models.CASCADE,
+        related_name='subscriptions',
+        verbose_name='O\'quvchi profili'
+    )
+    
+    subscription_plan = models.ForeignKey(
+        SubscriptionPlan,
+        on_delete=models.PROTECT,
+        related_name='student_subscriptions',
+        verbose_name='Abonement tarifi'
+    )
+    
+    branch = models.ForeignKey(
+        Branch,
+        on_delete=models.CASCADE,
+        related_name='student_subscriptions',
+        verbose_name='Filial'
+    )
+    
+    # Chegirma (ixtiyoriy)
+    discount = models.ForeignKey(
+        'Discount',
+        on_delete=models.SET_NULL,
+        related_name='student_subscriptions',
+        null=True,
+        blank=True,
+        verbose_name='Chegirma',
+        help_text='Bu abonementga qo\'llaniladigan chegirma'
+    )
+    
+    # Abonement holati
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='Faol',
+        help_text='Abonement faolmi?'
+    )
+    
+    # Davriy to'lov ma'lumotlari
+    start_date = models.DateField(
+        verbose_name='Boshlanish sanasi',
+        help_text='Abonement qachon boshlanadi'
+    )
+    end_date = models.DateField(
+        blank=True,
+        null=True,
+        verbose_name='Tugash sanasi',
+        help_text='Abonement qachon tugaydi (bo\'sh bo\'lsa - cheksiz)'
+    )
+    
+    # Keyingi to'lov sanasi
+    next_payment_date = models.DateField(
+        verbose_name='Keyingi to\'lov sanasi',
+        help_text='Keyingi to\'lov qachon kutilmoqda'
+    )
+    
+    # Qarzdorlik
+    total_debt = models.BigIntegerField(
+        default=0,
+        verbose_name='Umumiy qarz',
+        help_text='To\'lanmagan summalar yig\'indisi (so\'m)'
+    )
+    
+    # Oxirgi to'lov sanasi
+    last_payment_date = models.DateField(
+        blank=True,
+        null=True,
+        verbose_name='Oxirgi to\'lov sanasi'
+    )
+    
+    # Qo'shimcha
+    notes = models.TextField(
+        blank=True,
+        default='',
+        verbose_name='Eslatmalar'
+    )
+    
+    class Meta:
+        verbose_name = 'O\'quvchi abonementi'
+        verbose_name_plural = 'O\'quvchi abonementlari'
+        indexes = [
+            models.Index(fields=['student_profile', 'is_active']),
+            models.Index(fields=['next_payment_date']),
+            models.Index(fields=['branch', 'is_active']),
+        ]
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.student_profile} - {self.subscription_plan.name}"
+    
+    def calculate_payment_due(self):
+        """O'quvchi qancha to'lashi kerakligini hisoblash.
+        
+        Returns:
+            dict: {
+                'current_amount': int,  # Joriy davr uchun summa
+                'discount_amount': int, # Chegirma miqdori
+                'amount_after_discount': int, # Chegirmadan keyingi summa
+                'debt_amount': int,     # Qarz summasi
+                'total_amount': int,    # Jami to'lanishi kerak
+                'next_due_date': date,  # Keyingi to'lov sanasi
+                'overdue_months': int,  # Necha oy kechikkan
+                'has_discount': bool,   # Chegirma bormi
+            }
+        """
+        from datetime import date
+        from dateutil.relativedelta import relativedelta
+        
+        today = date.today()
+        
+        # Agar abonement tugagan bo'lsa
+        if self.end_date and today > self.end_date:
+            return {
+                'current_amount': 0,
+                'discount_amount': 0,
+                'amount_after_discount': 0,
+                'debt_amount': self.total_debt,
+                'total_amount': self.total_debt,
+                'next_due_date': None,
+                'overdue_months': 0,
+                'is_expired': True,
+                'has_discount': False,
+            }
+        
+        # Joriy davr uchun summa
+        current_amount = self.subscription_plan.price
+        
+        # Chegirmani hisoblash
+        discount_amount = 0
+        has_discount = False
+        if self.discount and self.discount.is_valid():
+            discount_amount = self.discount.calculate_discount(current_amount)
+            has_discount = True
+        
+        # Chegirmadan keyingi summa
+        amount_after_discount = current_amount - discount_amount
+        
+        # Kechikkan oylar sonini hisoblash
+        overdue_months = 0
+        if today > self.next_payment_date:
+            # Period bo'yicha kechikkan oylarni hisoblash
+            if self.subscription_plan.period == SubscriptionPeriod.MONTHLY:
+                overdue_months = (today.year - self.next_payment_date.year) * 12 + \
+                                (today.month - self.next_payment_date.month) + 1
+            elif self.subscription_plan.period == SubscriptionPeriod.QUARTERLY:
+                overdue_months = ((today.year - self.next_payment_date.year) * 12 + \
+                                 (today.month - self.next_payment_date.month) + 1) // 3
+            elif self.subscription_plan.period == SubscriptionPeriod.YEARLY:
+                overdue_months = today.year - self.next_payment_date.year + 1
+        
+        # Jami to'lanishi kerak (chegirmadan keyingi summa + qarz)
+        total_amount = self.total_debt + amount_after_discount
+        
+        return {
+            'current_amount': current_amount,
+            'discount_amount': discount_amount,
+            'amount_after_discount': amount_after_discount,
+            'debt_amount': self.total_debt,
+            'total_amount': total_amount,
+            'next_due_date': self.next_payment_date,
+            'overdue_months': overdue_months,
+            'is_expired': False,
+            'has_discount': has_discount,
+        }
+    
+    def update_next_payment_date(self):
+        """Keyingi to'lov sanasini yangilash (to'lovdan keyin)."""
+        from dateutil.relativedelta import relativedelta
+        
+        if self.subscription_plan.period == SubscriptionPeriod.MONTHLY:
+            self.next_payment_date = self.next_payment_date + relativedelta(months=1)
+        elif self.subscription_plan.period == SubscriptionPeriod.QUARTERLY:
+            self.next_payment_date = self.next_payment_date + relativedelta(months=3)
+        elif self.subscription_plan.period == SubscriptionPeriod.YEARLY:
+            self.next_payment_date = self.next_payment_date + relativedelta(years=1)
+        
+        self.save(update_fields=['next_payment_date', 'updated_at'])
+    
+    def add_debt(self, amount):
+        """Qarz qo'shish (to'lov kechiktirilganda)."""
+        from django.db.models import F
+        StudentSubscription.objects.filter(id=self.id).update(
+            total_debt=F('total_debt') + amount,
+            updated_at=timezone.now()
+        )
+        self.refresh_from_db()
+    
+    def reduce_debt(self, amount):
+        """Qarzni kamaytirish (to'lov qilinganda)."""
+        from django.db.models import F
+        StudentSubscription.objects.filter(id=self.id).update(
+            total_debt=F('total_debt') - amount,
+            updated_at=timezone.now()
+        )
+        self.refresh_from_db()
 

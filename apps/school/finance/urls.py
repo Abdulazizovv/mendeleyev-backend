@@ -7,6 +7,10 @@ from . import views
 app_name = 'finance'
 
 urlpatterns = [
+    # Finance Categories
+    path('categories/', views.FinanceCategoryListCreateView.as_view(), name='category-list'),
+    path('categories/<uuid:pk>/', views.FinanceCategoryDetailView.as_view(), name='category-detail'),
+    
     # Cash Registers
     path('cash-registers/', views.CashRegisterListView.as_view(), name='cash-register-list'),
     path('cash-registers/<uuid:pk>/', views.CashRegisterDetailView.as_view(), name='cash-register-detail'),
@@ -30,6 +34,13 @@ urlpatterns = [
     # Payments
     path('payments/', views.PaymentListView.as_view(), name='payment-list'),
     path('payments/<uuid:pk>/', views.PaymentDetailView.as_view(), name='payment-detail'),
+    
+    # Student Subscriptions
+    path('student-subscriptions/', views.StudentSubscriptionListView.as_view(), name='student-subscription-list'),
+    path('student-subscriptions/<uuid:id>/', views.StudentSubscriptionDetailView.as_view(), name='student-subscription-detail'),
+    
+    # Payment Due Summary
+    path('payment-due-summary/', views.PaymentDueSummaryView.as_view(), name='payment-due-summary'),
     
     # Statistics
     path('statistics/', views.FinanceStatisticsView.as_view(), name='statistics'),

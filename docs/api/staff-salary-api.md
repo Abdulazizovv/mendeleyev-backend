@@ -9,9 +9,25 @@ Xodimlar maosh API xodimlarning maoshini hisoblash, to'lash va balansini boshqar
 
 ---
 
+## Versiya Ma'lumotlari
+
+### v2.1.0 (2025-12-25)
+**MUHIM TUZATISHLAR:**
+- 🔧 **Kassa balansi avtomatik yangilanish** tuzatildi
+  - `create_cash_transaction=true` → CashTransaction yaratiladi
+  - Transaction.save() metodi avtomatik kassa balansini yangilaydi
+  - Dublikat update_balance() chaqiruvlari olib tashlandi
+- ✅ Xodimga pul to'langanda (`deduction`, `advance`, `fine`, `adjustment`) kassa balansi **avtomatik ayiriladi**
+- 🔧 Transaction modeli `_state.adding` dan foydalanadi (pk tekshiruvi o'rniga)
+
+**Muammo hal qilindi:**
+- ❌ Xodimga maosh to'langanda kassa balansi o'zgarmasdi → ✅ Avtomatik yangilanadi
+
+---
+
 ## Endpoints
 
-### 1. Balansni O'zgartirish (Change Balance) 🆕
+### 1. Balansni O'zgartirish (Change Balance)
 
 Admin tomonidan xodim balansini qo'lda o'zgartirish. Kassa bilan integratsiya qilingan - to'lov amalga oshirilganda avtomatik kassadan pul chiqimi qayd qilinadi.
 
@@ -49,6 +65,12 @@ Admin tomonidan xodim balansini qo'lda o'zgartirish. Kassa bilan integratsiya qi
 | payment_method | string | No | To'lov usuli (default: cash) |
 | reference | string | No | Referens raqami |
 
+**⚠️ MUHIM: Kassa Balansi Avtomatik Yangilanish**
+
+- `create_cash_transaction=true` → **CashTransaction yaratiladi va kassa balansi avtomatik ayiriladi**
+- Faqat to'lov turlari uchun: `deduction`, `advance`, `fine`, `adjustment`
+- Balans hisoblash turlari (`salary_accrual`, `bonus`) uchun kassa tranzaksiyasi yaratib bo'lmaydi
+
 **Transaction Types (Balans tranzaksiya turlari):**
 
 | Type | Uzbek | Balans Ta'siri | Kassa Ta'siri |
@@ -56,10 +78,10 @@ Admin tomonidan xodim balansini qo'lda o'zgartirish. Kassa bilan integratsiya qi
 | `salary_accrual` | Oylik hisoblash | ➕ Qo'shiladi | ➖ Kassadan chiqmaydi |
 | `bonus` | Bonus | ➕ Qo'shiladi | ➖ Kassadan chiqmaydi |
 | `other` | Boshqa | ➕ Qo'shiladi | ➖ Kassadan chiqmaydi |
-| `deduction` | Balansdan chiqarish | ➖ Ayiriladi | ✅ Kassa chiqimi (agar create_cash_transaction=true) |
-| `advance` | Avans berish | ➖ Ayiriladi | ✅ Kassa chiqimi (agar create_cash_transaction=true) |
-| `fine` | Jarima | ➖ Ayiriladi | ✅ Kassa chiqimi (agar create_cash_transaction=true) |
-| `adjustment` | To'g'rilash | ➖ Ayiriladi | ✅ Kassa chiqimi (agar create_cash_transaction=true) |
+| `deduction` | Balansdan chiqarish | ➖ Ayiriladi | ✅ **Avtomatik kassadan chiqadi** |
+| `advance` | Avans berish | ➖ Ayiriladi | ✅ **Avtomatik kassadan chiqadi** |
+| `fine` | Jarima | ➖ Ayiriladi | ✅ **Avtomatik kassadan chiqadi** |
+| `adjustment` | To'g'rilash | ➖ Ayiriladi | ✅ **Avtomatik kassadan chiqadi** |
 
 **Payment Methods:**
 

@@ -4,6 +4,8 @@ from django.conf import settings
 from apps.common.models import BaseModel, BaseManager
 from django.utils.text import slugify
 
+from auth.users.models import User
+
 
 class BranchTypes(models.TextChoices):
     SCHOOL = 'school', 'Maktab'
@@ -395,7 +397,7 @@ class BranchMembership(BaseModel):
     Each membership has a balance for salary management.
     """
     
-    user = models.ForeignKey(
+    user: User = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='branch_memberships',

@@ -13,7 +13,65 @@ from .models import (
     Payment,
     TransactionType,
     TransactionStatus,
+    FinanceCategory,
 )
+
+
+@admin.register(FinanceCategory)
+class FinanceCategoryAdmin(admin.ModelAdmin):
+    """Moliya kategoriyasi admin."""
+    list_display = [
+        'name',
+        'type_display',
+        'branch_display',
+        'parent_display',
+        'is_active',
+        'created_at',
+    ]
+    list_filter = ['type', 'is_active', 'branch', 'created_at']
+    search_fields = ['name', 'description', 'branch__name']
+    readonly_fields = ['id', 'created_at', 'updated_at']
+    fieldsets = (
+        ('Asosiy ma\'lumotlar', {
+            'fields': ('id', 'branch', 'type', 'name', 'description')
+        }),
+        ('Ierarxiya', {
+            'fields': ('parent',)
+        }),
+        ('Holat', {
+            'fields': ('is_active',)
+        }),
+        ('Vaqt', {
+            'fields': ('created_at', 'updated_at')
+        }),
+    )
+    
+    def type_display(self, obj):
+        """Tur ko'rinishi."""
+        colors = {
+            'income': '#28a745',
+            'expense': '#dc3545',
+        }
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">{}</span>',
+            colors.get(obj.type, '#6c757d'),
+            obj.get_type_display()
+        )
+    type_display.short_description = 'Tur'
+    
+    def branch_display(self, obj):
+        """Filial ko'rinishi."""
+        if obj.branch:
+            return obj.branch.name
+        return format_html('<span style="color: #007bff; font-weight: bold;">Global</span>')
+    branch_display.short_description = 'Filial'
+    
+    def parent_display(self, obj):
+        """Ota kategoriya ko'rinishi."""
+        if obj.parent:
+            return obj.parent.name
+        return '-'
+    parent_display.short_description = 'Ota kategoriya'
 
 
 @admin.register(CashRegister)
@@ -62,6 +120,7 @@ class TransactionAdmin(admin.ModelAdmin):
     list_display = [
         'transaction_type_display',
         'amount_display',
+        'category_display',
         'branch_display',
         'cash_register_display',
         'status_display',
@@ -74,6 +133,7 @@ class TransactionAdmin(admin.ModelAdmin):
         'transaction_type',
         'status',
         'payment_method',
+        'category',
         'branch',
         'cash_register',
         'transaction_date',
@@ -88,7 +148,7 @@ class TransactionAdmin(admin.ModelAdmin):
     date_hierarchy = 'transaction_date'
     fieldsets = (
         ('Asosiy ma\'lumotlar', {
-            'fields': ('id', 'branch', 'cash_register', 'transaction_type', 'status')
+            'fields': ('id', 'branch', 'cash_register', 'transaction_type', 'status', 'category')
         }),
         ('Summa', {
             'fields': ('amount', 'payment_method')
@@ -126,6 +186,18 @@ class TransactionAdmin(admin.ModelAdmin):
         """Kassa ko'rinishi."""
         return obj.cash_register.name
     cash_register_display.short_description = 'Kassa'
+    
+    def category_display(self, obj):
+        """Kategoriya ko'rinishi."""
+        if obj.category:
+            type_color = '#28a745' if obj.category.type == 'income' else '#dc3545'
+            return format_html(
+                '<span style="color: {};">{}</span>',
+                type_color,
+                obj.category.name
+            )
+        return '-'
+    category_display.short_description = 'Kategoriya'
     
     def status_display(self, obj):
         """Holat ko'rinishi."""

@@ -2,6 +2,43 @@
 
 O'quvchilar va ularning yaqinlarini boshqarish uchun API'lar.
 
+## Versiya Ma'lumotlari
+
+### v2.2.0 (2025-12-23)
+**Yangiliklar:**
+- ✅ **Student Detail API takomillashtirildi**:
+  - `recent_transactions` - Oxirgi 10 ta tranzaksiya
+  - To'liq employee ma'lumotlari (avatar, role, phone)
+  - To'liq kategori va kassa ma'lumotlari
+- 📝 To'liq ma'lumot: [student-detail.md](./student-detail.md), [transactions.md](./transactions.md)
+
+### v2.1.0 (2025-12-23)
+**Yangiliklar:**
+- ✅ Student yaratishda abonement sanalarini qo'lda belgilash:
+  - `subscription_start_date` - Abonement boshlanish sanasini o'zingiz belgilang
+  - `subscription_next_payment_date` - Keyingi to'lov sanasini o'zingiz belgilang
+- ✅ **Chegirmalar tizimi**:
+  - `discount_id` - Abonementga chegirma qo'llash
+  - Foiz yoki aniq summa (Discount model)
+  - Amal qilish muddati (valid_from, valid_until)
+  - Avtomatik hisoblash (payment_due API'da)
+- ✅ Moslashuvchan sana boshqaruvi (sana berilmasa avtomatik hisoblanadi)
+- 📝 Use case'lar: Oyning boshidan abonement boshlash, maxsus to'lov jadvallar, chegirmalar
+
+### v2.0.0 (2025-01-20)
+**Yangiliklar:**
+- ✅ Student yaratishda abonement avtomatik biriktiriladi (`subscription_plan_id`)
+- ✅ `StudentSubscription` yaratish va boshqarish
+- ✅ `next_payment_date` avtomatik hisoblash (tarif davriga ko'ra)
+- ✅ Student Detail API: `subscriptions`, `payment_due`, `relatives` maydonlari
+- ✅ To'lov workflow: Subscription → Payment → Transaction
+- 📝 To'liq ma'lumot: [student-detail.md](./student-detail.md)
+
+### v1.0.0
+- Asosiy CRUD operatsiyalari
+- Yaqinlar boshqaruvi
+- Balance tracking
+
 ## Umumiy Ma'lumotlar
 
 - **Base URL**: `/api/v1/school/students/`
@@ -251,6 +288,9 @@ POST /api/v1/school/students/create/
   },
   "class_id": "uuid",
   "subscription_plan_id": "uuid",
+  "subscription_start_date": "2025-12-23",
+  "subscription_next_payment_date": "2026-01-23",
+  "discount_id": "uuid",
   "relatives": [
     {
       "relationship_type": "father",
@@ -293,12 +333,35 @@ POST /api/v1/school/students/create/
   - `passport_number` - Pasport yoki ID karta raqami
   - `nationality` - Millati (masalan: UZ, RU)
   - `additional_fields` - Qo'shimcha hujjat ma'lumotlari (JSON)
-- **Abonement**: `subscription_plan_id` - Abonement tarifi ID (ixtiyoriy)
-  - Agar berilsa, avtomatik `Payment` va `Transaction` yaratiladi
-  - Agar kassa bo'lmasa, avtomatik "Asosiy kassa" yaratiladi
+
+- **Abonement tizimi** (v2.0.0):
+  - `subscription_plan_id` - Abonement tarifi ID (ixtiyoriy)
+  - `subscription_start_date` - Abonement boshlanish sanasi (ixtiyoriy, agar berilmasa bugungi sana ishlatiladi)
+  - `subscription_next_payment_date` - Keyingi to'lov sanasi (ixtiyoriy, agar berilmasa avtomatik hisoblanadi)
+  - `discount_id` - Chegirma ID (ixtiyoriy, abonementga chegirma qo'llash uchun)
+  
+  - **Avtomatik amallar**:
+    - `StudentSubscription` yaratiladi (o'quvchi va tarif orasida bog'lanish)
+    - `start_date` = subscription_start_date yoki hozirgi sana
+    - `next_payment_date` = subscription_next_payment_date yoki avtomatik hisoblangan sana
+    - `total_debt` = 0 (boshlang'ich qarz yo'q)
+  
+  - **Qo'lda sana belgilash** (v2.0.0):
+    - Abonement boshlanish sanasini o'zingiz belgilashingiz mumkin
+    - Keyingi to'lov sanasini o'zingiz belgilashingiz mumkin
+    - Agar sana berilmasa, avtomatik hisoblash ishlatiladi
+  
+  - **Avtomatik hisoblash** (sana berilmagan holda):
+    - `monthly`: Keyingi to'lov = +1 oy
+    - `quarterly`: Keyingi to'lov = +3 oy
+    - `yearly`: Keyingi to'lov = +1 yil
+  - **Muhim**: Abonement yaratiladi, lekin to'lov hali qilinmaydi (to'lov keyinchalik payment API orqali amalga oshiriladi)
+  - **Student Detail API**: Yaratilgan abonement darhol student detail API'da ko'rinadi (`subscriptions`, `payment_due` maydonlari orqali)
+  
 - **Yaqinlar**: `relatives` array - bir vaqtning o'zida bir nechta yaqin qo'shish mumkin
   - Har bir yaqin uchun avtomatik `User` va `BranchMembership` (role=PARENT) yaratiladi
   - Agar yaqin allaqachon boshqa rolda bo'lsa, xatolik qaytariladi
+  
 - **Atomic operatsiyalar**: Barcha operatsiyalar bir xatoda bajariladi (agar xato bo'lsa, rollback)
 - **Sinfga biriktirish**: `class_id` orqali sinfga biriktirish mumkin
 
@@ -337,7 +400,16 @@ POST /api/v1/school/students/create/
 }
 ```
 
-**Eslatmalar:**
+**Response Eslatmalari:**
+- Response'da abonement ma'lumotlari ko'rinmaydi (faqat asosiy student ma'lumotlari)
+- **Abonement ma'lumotlarini ko'rish uchun**: Student Detail API'sini chaqiring:
+  ```
+  GET /api/v1/school/students/{student_id}/
+  ```
+  - Bu API `subscriptions`, `payment_due`, `relatives` va boshqa to'liq ma'lumotlarni qaytaradi
+  - To'liq hujjat: [student-detail.md](./student-detail.md)
+
+**Response Maydonlari:**
 - Telefon raqam tasdiqlash shart emas
 - Agar user allaqachon mavjud bo'lsa, ma'lumotlar yangilanadi
 - `StudentBalance` avtomatik yaratiladi (signal orqali)
@@ -345,6 +417,280 @@ POST /api/v1/school/students/create/
 - **Fayllar**: `birth_certificate` va `birth_certificate_url` - nisbiy va to'liq URL
   - `birth_certificate`: Nisbiy URL (masalan: `/media/students/birth_certificates/cert_123.pdf`)
   - `birth_certificate_url`: To'liq URL (masalan: `https://api.example.com/media/students/birth_certificates/cert_123.pdf`)
+
+**Abonement yaratish misollari** (v2.0.0):
+
+**1. Avtomatik sana hisoblash:**
+```json
+// Request
+{
+  "phone_number": "+998901234567",
+  "first_name": "Ali",
+  "last_name": "Valiyev",
+  "branch_id": "branch-uuid",
+  "subscription_plan_id": "plan-uuid"  // Tarif ID
+}
+
+// Backend'da avtomatik bajariladi:
+// 1. StudentSubscription yaratiladi:
+//    - student_profile: ali (student)
+//    - subscription_plan: plan-uuid
+//    - start_date: 2025-12-23 (bugungi sana)
+//    - next_payment_date: 2026-01-23 (agar monthly bo'lsa)
+//    - total_debt: 0
+//    - is_active: true
+```
+
+**2. Qo'lda sana belgilash:**
+```json
+// Request
+{
+  "phone_number": "+998901234567",
+  "first_name": "Ali",
+  "last_name": "Valiyev",
+  "branch_id": "branch-uuid",
+  "subscription_plan_id": "plan-uuid",
+  "subscription_start_date": "2025-12-01",
+  "subscription_next_payment_date": "2026-01-01"
+}
+
+// Backend'da bajariladi:
+// 1. StudentSubscription yaratiladi:
+//    - start_date: 2025-12-01 (sizning berilgan sanangiz)
+//    - next_payment_date: 2026-01-01 (sizning berilgan sanangiz)
+//    - Boshqa maydonlar avtomatik to'ldiriladi
+```
+
+**3. Aralash (faqat start_date belgilash):**
+```json
+// Request
+{
+  "phone_number": "+998901234567",
+  "first_name": "Ali",
+  "branch_id": "branch-uuid",
+  "subscription_plan_id": "plan-uuid",
+  "subscription_start_date": "2025-12-01"
+  // next_payment_date berilmagan
+}
+
+// Backend'da bajariladi:
+// 1. start_date = 2025-12-01 (sizning berilgan sanangiz)
+// 2. next_payment_date = 2026-01-01 (start_date + 1 oy, agar monthly bo'lsa)
+```
+
+**Student Detail API'da ko'rinishi:**
+```json
+GET /api/v1/school/students/{ali-uuid}/
+Response:
+{
+  ...
+  "subscriptions": [
+    {
+      "id": "sub-uuid",
+      "subscription_plan": {
+        "id": "plan-uuid",
+        "name": "Premium Oylik",
+        "price": 500000,
+        "period_type": "monthly"
+      },
+      "start_date": "2025-12-01",
+      "next_payment_date": "2026-01-01",
+      "is_active": true
+    }
+  ],
+  "payment_due": [
+    {
+      "subscription_id": "sub-uuid",
+      "current_amount": 500000,
+      "debt_amount": 0,
+      "total_amount": 500000,
+      "next_due_date": "2026-01-01",
+      "overdue_months": 0,
+      "is_expired": false
+    }
+  ]
+}
+```
+
+**Abonement yaratish use case'lari** (v2.1.0):
+
+**Use Case 1: Oyning birinchi kunidan boshlamoqchi bo'lsangiz**
+```json
+// Masalan, hozir 2025-12-23, lekin siz abonementni 2026-01-01 dan boshlamoqchisiz
+{
+  "phone_number": "+998901234567",
+  "first_name": "Sardor",
+  "branch_id": "branch-uuid",
+  "subscription_plan_id": "monthly-plan-uuid",
+  "subscription_start_date": "2026-01-01",
+  "subscription_next_payment_date": "2026-02-01"
+}
+
+// Natija: Abonement 2026-01-01 dan boshlanadi, keyingi to'lov 2026-02-01
+```
+
+**Use Case 2: O'quvchi o'rtada kelgan (mid-month subscription)**
+```json
+// O'quvchi 2025-12-15 da keldi, lekin to'lovni yanvarning 10-kunida olmoqchisiz
+{
+  "phone_number": "+998901234567",
+  "first_name": "Malika",
+  "branch_id": "branch-uuid",
+  "subscription_plan_id": "monthly-plan-uuid",
+  "subscription_start_date": "2025-12-15",
+  "subscription_next_payment_date": "2026-01-10"
+}
+
+// Natija: Abonement 2025-12-15 dan, keyingi to'lov 2026-01-10
+```
+
+**Use Case 3: Chegirma/Imtiyoz (3 oy bepul kabi)**
+```json
+// Student 3 oy bepul oldi, to'lov 3 oydan keyin
+{
+  "phone_number": "+998901234567",
+  "first_name": "Javohir",
+  "branch_id": "branch-uuid",
+  "subscription_plan_id": "monthly-plan-uuid",
+  "subscription_start_date": "2025-12-23",
+  "subscription_next_payment_date": "2026-03-23"  // 3 oy keyingi
+}
+
+// Natija: Abonement bugun boshlanadi, lekin to'lov 3 oydan keyin
+```
+
+**Use Case 4: Maxsus to'lov jadvali (har 2 oyda to'lov)**
+```json
+// O'quvchi har 2 oyda to'laydi (quarterly emas, custom)
+{
+  "phone_number": "+998901234567",
+  "first_name": "Dilshod",
+  "branch_id": "branch-uuid",
+  "subscription_plan_id": "monthly-plan-uuid",
+  "subscription_start_date": "2025-12-01",
+  "subscription_next_payment_date": "2026-02-01"  // 2 oy keyingi
+}
+
+// Natija: Custom to'lov jadvali
+```
+
+**Use Case 5: Standart rejim (sanalar berilmagan)**
+```json
+// Eng oddiy variant - hamma narsa avtomatik
+{
+  "phone_number": "+998901234567",
+  "first_name": "Aziza",
+  "branch_id": "branch-uuid",
+  "subscription_plan_id": "monthly-plan-uuid"
+}
+
+// Natija: 
+// - start_date = 2025-12-23 (bugungi sana)
+// - next_payment_date = 2026-01-23 (agar monthly bo'lsa)
+```
+
+**Use Case 6: Chegirma qo'llash (foiz chegirma)**
+```json
+// 20% chegirma bilan abonement
+{
+  "phone_number": "+998901234567",
+  "first_name": "Umid",
+  "branch_id": "branch-uuid",
+  "subscription_plan_id": "monthly-plan-uuid",
+  "discount_id": "discount-uuid"  // 20% chegirma
+}
+
+// Misol:
+// - subscription_plan.price = 500,000 so'm
+// - discount.discount_type = "percentage"
+// - discount.amount = 20 (20%)
+// - Chegirma summasi = 100,000 so'm
+// - To'lanadigan summa = 400,000 so'm
+```
+
+**Use Case 7: Chegirma qo'llash (aniq summa)**
+```json
+// 50,000 so'm chegirma bilan abonement
+{
+  "phone_number": "+998901234567",
+  "first_name": "Nodira",
+  "branch_id": "branch-uuid",
+  "subscription_plan_id": "monthly-plan-uuid",
+  "discount_id": "fixed-discount-uuid"  // 50,000 so'm chegirma
+}
+
+// Misol:
+// - subscription_plan.price = 500,000 so'm
+// - discount.discount_type = "fixed"
+// - discount.amount = 50000 (aniq summa)
+// - Chegirma summasi = 50,000 so'm
+// - To'lanadigan summa = 450,000 so'm
+```
+
+**Use Case 8: Kompleks (sanalar + chegirma)**
+```json
+// Oyning 1-kunidan boshlanuvchi, chegirma bilan abonement
+{
+  "phone_number": "+998901234567",
+  "first_name": "Shohruh",
+  "branch_id": "branch-uuid",
+  "subscription_plan_id": "monthly-plan-uuid",
+  "subscription_start_date": "2026-01-01",
+  "subscription_next_payment_date": "2026-02-01",
+  "discount_id": "new-student-discount-uuid"  // Yangi o'quvchilar uchun 15%
+}
+
+// Natija:
+// - Abonement 2026-01-01 dan boshlanadi
+// - To'lov 2026-02-01 da kutilmoqda
+// - 15% chegirma qo'llanadi
+// - Student Detail API'da barcha ma'lumotlar ko'rinadi
+```
+
+**Chegirma Student Detail API'da ko'rinishi:**
+```json
+GET /api/v1/school/students/{student-uuid}/
+Response:
+{
+  ...
+  "subscriptions": [
+    {
+      "id": "sub-uuid",
+      "subscription_plan": {
+        "id": "plan-uuid",
+        "name": "Premium Oylik",
+        "price": 500000,
+        "period_type": "monthly"
+      },
+      "discount": {
+        "id": "discount-uuid",
+        "name": "Yangi o'quvchilar uchun chegirma",
+        "discount_type": "percentage",
+        "amount": 20
+      },
+      "start_date": "2025-12-23",
+      "next_payment_date": "2026-01-23",
+      "is_active": true
+    }
+  ],
+  "payment_due": [
+    {
+      "subscription_id": "sub-uuid",
+      "current_amount": 500000,        // Asosiy narx
+      "discount_amount": 100000,       // Chegirma summasi (20%)
+      "amount_after_discount": 400000, // Chegirmadan keyingi narx
+      "debt_amount": 0,
+      "total_amount": 400000,          // Jami to'lanadigan
+      "next_due_date": "2026-01-23",
+      "overdue_months": 0,
+      "is_expired": false,
+      "has_discount": true             // Chegirma bormi
+    }
+  ]
+}
+```
+// - next_payment_date = 2026-01-23 (agar monthly bo'lsa)
+```
 
 ---
 

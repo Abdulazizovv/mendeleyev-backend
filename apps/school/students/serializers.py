@@ -90,6 +90,21 @@ class StudentCreateSerializer(serializers.Serializer):
         allow_null=True,
         help_text='Abonement tarifi ID (agar o\'quvchiga abonement tanlash kerak bo\'lsa)'
     )
+    subscription_start_date = serializers.DateField(
+        required=False,
+        allow_null=True,
+        help_text='Abonement boshlanish sanasi (agar berilmasa, bugungi sana qo\'llaniladi)'
+    )
+    subscription_next_payment_date = serializers.DateField(
+        required=False,
+        allow_null=True,
+        help_text='Keyingi to\'lov sanasi (agar berilmasa, avtomatik hisoblanadi)'
+    )
+    discount_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text='Chegirma ID (ixtiyoriy, abonementga chegirma qo\'llash uchun)'
+    )
     
     # Hujjat ma'lumotlari
     birth_certificate = serializers.FileField(
@@ -182,6 +197,20 @@ class StudentCreateSerializer(serializers.Serializer):
                 return value
             except SubscriptionPlan.DoesNotExist:
                 raise serializers.ValidationError("Abonement tarifi topilmadi yoki faol emas.")
+        return value
+    
+    def validate_discount_id(self, value):
+        """Chegirmani tekshirish."""
+        if value:
+            from apps.school.finance.models import Discount
+            try:
+                discount = Discount.objects.get(id=value, deleted_at__isnull=True, is_active=True)
+                # Chegirma amal qilish muddatini tekshirish
+                if not discount.is_valid():
+                    raise serializers.ValidationError("Chegirma muddati tugagan yoki hali boshlanmagan.")
+                return value
+            except Discount.DoesNotExist:
+                raise serializers.ValidationError("Chegirma topilmadi yoki faol emas.")
         return value
     
     def validate_relatives(self, value):
@@ -350,75 +379,55 @@ class StudentCreateSerializer(serializers.Serializer):
         # Abonement tanlash (agar berilgan bo'lsa)
         subscription_plan_id = validated_data.get('subscription_plan_id')
         if subscription_plan_id:
-            from apps.school.finance.models import SubscriptionPlan, Payment, Transaction, CashRegister
+            from apps.school.finance.models import SubscriptionPlan, StudentSubscription, Discount
             from django.utils import timezone
-            from datetime import timedelta
+            from dateutil.relativedelta import relativedelta
+            from datetime import datetime
             
             subscription_plan = SubscriptionPlan.objects.get(id=subscription_plan_id)
             branch = membership.branch
             
-            # Kassa topish yoki yaratish
-            cash_register = CashRegister.objects.filter(
-                branch=branch,
-                is_active=True,
-                deleted_at__isnull=True
-            ).first()
+            # Start date'ni olish (agar berilgan bo'lsa)
+            start_date = validated_data.get('subscription_start_date')
+            if not start_date:
+                start_date = timezone.now().date()
             
-            if not cash_register:
-                # Agar kassa bo'lmasa, birinchi kassani yaratamiz
-                cash_register = CashRegister.objects.create(
-                    branch=branch,
-                    name="Asosiy kassa",
-                    is_active=True
-                )
+            # Next payment date'ni olish yoki hisoblash
+            next_payment_date = validated_data.get('subscription_next_payment_date')
+            if not next_payment_date:
+                # Avtomatik hisoblash
+                period = subscription_plan.period
+                start_datetime = datetime.combine(start_date, datetime.min.time())
+                
+                if period == 'monthly':
+                    next_payment_date = (start_datetime + relativedelta(months=1)).date()
+                elif period == 'quarterly':
+                    next_payment_date = (start_datetime + relativedelta(months=3)).date()
+                elif period == 'yearly':
+                    next_payment_date = (start_datetime + relativedelta(years=1)).date()
+                else:
+                    next_payment_date = (start_datetime + relativedelta(months=1)).date()
             
-            # Davr boshlanish va tugash sanalarini hisoblash
-            now = timezone.now()
-            period = subscription_plan.period
+            # Chegirmani olish (agar berilgan bo'lsa)
+            discount = None
+            discount_id = validated_data.get('discount_id')
+            if discount_id:
+                try:
+                    discount = Discount.objects.get(id=discount_id)
+                except Discount.DoesNotExist:
+                    pass
             
-            if period == 'monthly':
-                period_start = now.date()
-                period_end = (now + timedelta(days=30)).date()
-            elif period == 'quarterly':
-                period_start = now.date()
-                period_end = (now + timedelta(days=90)).date()
-            elif period == 'semester':
-                period_start = now.date()
-                period_end = (now + timedelta(days=180)).date()
-            elif period == 'yearly':
-                period_start = now.date()
-                period_end = (now + timedelta(days=365)).date()
-            else:
-                period_start = now.date()
-                period_end = (now + timedelta(days=30)).date()
-            
-            # Tranzaksiya yaratish
-            transaction = Transaction.objects.create(
-                branch=branch,
-                cash_register=cash_register,
-                transaction_type='payment',
-                status='completed',
-                amount=subscription_plan.price,
-                payment_method='cash',
-                description=f"O'quvchi abonement to'lovi: {subscription_plan.name}",
+            # StudentSubscription yaratish
+            StudentSubscription.objects.create(
                 student_profile=student_profile,
-            )
-            
-            # Payment yaratish
-            Payment.objects.create(
-                student_profile=student_profile,
-                branch=branch,
                 subscription_plan=subscription_plan,
-                base_amount=subscription_plan.price,
-                discount_amount=0,
-                final_amount=subscription_plan.price,
-                payment_method='cash',
-                period=period,
-                payment_date=now,
-                period_start=period_start,
-                period_end=period_end,
-                transaction=transaction,
-                notes=f"O'quvchi yaratilganda abonement tanlandi"
+                branch=branch,
+                discount=discount,
+                is_active=True,
+                start_date=start_date,
+                next_payment_date=next_payment_date,
+                total_debt=0,
+                notes=f"O'quvchi yaratilganda abonement biriktirildi"
             )
         
         # Yaqinlarni yaratish (agar berilgan bo'lsa)
@@ -555,7 +564,11 @@ class StudentProfileSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
     current_class = serializers.SerializerMethodField()
     relatives_count = serializers.SerializerMethodField()
+    relatives = serializers.SerializerMethodField()
     balance = serializers.SerializerMethodField()
+    subscriptions = serializers.SerializerMethodField()
+    payment_due = serializers.SerializerMethodField()
+    recent_transactions = serializers.SerializerMethodField()
     birth_certificate = serializers.SerializerMethodField()
     birth_certificate_url = serializers.SerializerMethodField()
     # Global avatar from user's Profile
@@ -591,7 +604,11 @@ class StudentProfileSerializer(serializers.ModelSerializer):
             'additional_fields',
             'current_class',
             'relatives_count',
+            'relatives',
             'balance',
+            'subscriptions',
+            'payment_due',
+            'recent_transactions',
             'created_at',
             'updated_at',
         ]
@@ -611,6 +628,20 @@ class StudentProfileSerializer(serializers.ModelSerializer):
     def get_relatives_count(self, obj):
         """Yaqinlar sonini qaytarish."""
         return obj.relatives.count()
+    
+    def get_relatives(self, obj):
+        """Yaqinlar ro'yxatini qaytarish (detail view uchun)."""
+        include_relatives = self.context.get('include_relatives', False)
+        
+        if include_relatives:
+            relatives = obj.relatives.filter(deleted_at__isnull=True)
+            return StudentRelativeSerializer(
+                relatives, 
+                many=True, 
+                context=self.context
+            ).data
+        
+        return None
     
     def get_birth_certificate(self, obj):
         """Tu'gilganlik guvohnoma rasmi nisbiy URL."""
@@ -761,6 +792,217 @@ class StudentProfileSerializer(serializers.ModelSerializer):
                 return {
                     'balance': 0
                 }
+    
+    def get_subscriptions(self, obj):
+        """O'quvchi abonementlarini qaytarish (detail view uchun)."""
+        include_subscriptions = self.context.get('include_subscriptions', False)
+        
+        if not include_subscriptions:
+            return None
+        
+        try:
+            from apps.school.finance.models import StudentSubscription
+            
+            subscriptions = StudentSubscription.objects.filter(
+                student_profile=obj,
+                is_active=True,
+                deleted_at__isnull=True
+            ).select_related('subscription_plan', 'branch', 'discount').order_by('-created_at')
+            
+            result = []
+            for subscription in subscriptions:
+                subscription_data = {
+                    'id': str(subscription.id),
+                    'subscription_plan': {
+                        'id': str(subscription.subscription_plan.id),
+                        'name': subscription.subscription_plan.name,
+                        'price': subscription.subscription_plan.price,
+                        'period': subscription.subscription_plan.period,
+                        'period_display': subscription.subscription_plan.get_period_display(),
+                    },
+                    'is_active': subscription.is_active,
+                    'start_date': subscription.start_date.isoformat() if subscription.start_date else None,
+                    'end_date': subscription.end_date.isoformat() if subscription.end_date else None,
+                    'next_payment_date': subscription.next_payment_date.isoformat() if subscription.next_payment_date else None,
+                    'last_payment_date': subscription.last_payment_date.isoformat() if subscription.last_payment_date else None,
+                    'total_debt': subscription.total_debt,
+                    'notes': subscription.notes,
+                    'created_at': subscription.created_at.isoformat() if subscription.created_at else None,
+                }
+                
+                # Chegirma ma'lumotlarini qo'shish
+                if subscription.discount:
+                    subscription_data['discount'] = {
+                        'id': str(subscription.discount.id),
+                        'name': subscription.discount.name,
+                        'discount_type': subscription.discount.discount_type,
+                        'discount_type_display': subscription.discount.get_discount_type_display(),
+                        'amount': subscription.discount.amount,
+                        'is_active': subscription.discount.is_active,
+                        'is_valid': subscription.discount.is_valid(),
+                    }
+                else:
+                    subscription_data['discount'] = None
+                
+                result.append(subscription_data)
+            
+            return result
+        except Exception as e:
+            # Agar StudentSubscription modeli bo'lmasa yoki xatolik yuz bersa
+            return []
+    
+    def get_payment_due(self, obj):
+        """O'quvchi to'lov xulosasini qaytarish (detail view uchun)."""
+        include_payment_due = self.context.get('include_payment_due', False)
+        
+        if not include_payment_due:
+            return None
+        
+        try:
+            from apps.school.finance.models import StudentSubscription
+            from datetime import date
+            
+            # Faol abonementlarni olish
+            subscriptions = StudentSubscription.objects.filter(
+                student_profile=obj,
+                is_active=True,
+                deleted_at__isnull=True
+            ).select_related('subscription_plan')
+            
+            if not subscriptions.exists():
+                return {
+                    'has_subscription': False,
+                    'total_amount': 0,
+                    'subscriptions': []
+                }
+            
+            # Har bir abonement uchun to'lov xulosasini hisoblash
+            today = date.today()
+            total_amount = 0
+            subscription_summaries = []
+            
+            for subscription in subscriptions:
+                payment_due = subscription.calculate_payment_due()
+                total_amount += payment_due['total_amount']
+                
+                summary = {
+                    'subscription_id': str(subscription.id),
+                    'subscription_plan_name': subscription.subscription_plan.name,
+                    'subscription_period': subscription.subscription_plan.get_period_display(),
+                    'subscription_price': subscription.subscription_plan.price,
+                    'current_amount': payment_due['current_amount'],
+                    'debt_amount': payment_due['debt_amount'],
+                    'total_amount': payment_due['total_amount'],
+                    'next_due_date': payment_due['next_due_date'].isoformat() if payment_due.get('next_due_date') else None,
+                    'overdue_months': payment_due['overdue_months'],
+                    'is_expired': payment_due['is_expired'],
+                    'is_overdue': today > subscription.next_payment_date if subscription.next_payment_date else False,
+                }
+                
+                # Chegirma ma'lumotlarini qo'shish
+                if payment_due.get('has_discount'):
+                    summary['discount_amount'] = payment_due['discount_amount']
+                    summary['amount_after_discount'] = payment_due['amount_after_discount']
+                    summary['has_discount'] = True
+                else:
+                    summary['discount_amount'] = 0
+                    summary['amount_after_discount'] = payment_due['current_amount']
+                    summary['has_discount'] = False
+                
+                subscription_summaries.append(summary)
+            
+            return {
+                'has_subscription': True,
+                'total_amount': total_amount,
+                'subscriptions': subscription_summaries
+            }
+        except Exception as e:
+            return {
+                'has_subscription': False,
+                'total_amount': 0,
+                'subscriptions': [],
+                'error': str(e)
+            }
+    
+    def get_recent_transactions(self, obj):
+        """O'quvchining oxirgi tranzaksiyalarini qaytarish (detail view uchun)."""
+        include_recent_transactions = self.context.get('include_recent_transactions', False)
+        
+        if not include_recent_transactions:
+            return None
+        
+        try:
+            from apps.school.finance.models import Transaction, TransactionStatus
+            
+            # Oxirgi 10 ta tranzaksiyani olish
+            transactions = Transaction.objects.filter(
+                student_profile=obj,
+                deleted_at__isnull=True
+            ).select_related(
+                'branch',
+                'cash_register',
+                'category',
+                'employee_membership__user',
+                'employee_membership__user__profile'
+            ).order_by('-transaction_date')[:10]
+            
+            result = []
+            for transaction in transactions:
+                transaction_data = {
+                    'id': str(transaction.id),
+                    'transaction_type': transaction.transaction_type,
+                    'transaction_type_display': transaction.get_transaction_type_display(),
+                    'status': transaction.status,
+                    'status_display': transaction.get_status_display(),
+                    'amount': transaction.amount,
+                    'payment_method': transaction.payment_method,
+                    'payment_method_display': transaction.get_payment_method_display(),
+                    'description': transaction.description,
+                    'reference_number': transaction.reference_number,
+                    'transaction_date': transaction.transaction_date.isoformat() if transaction.transaction_date else None,
+                    'cash_register': {
+                        'id': str(transaction.cash_register.id),
+                        'name': transaction.cash_register.name,
+                    } if transaction.cash_register else None,
+                    'category': {
+                        'id': str(transaction.category.id),
+                        'name': transaction.category.name,
+                        'type': transaction.category.type,
+                    } if transaction.category else None,
+                }
+                
+                # Xodim ma'lumotlarini qo'shish (agar mavjud bo'lsa)
+                if transaction.employee_membership:
+                    user = transaction.employee_membership.user
+                    profile = getattr(user, 'profile', None)
+                    
+                    employee_data = {
+                        'id': str(transaction.employee_membership.id),
+                        'user_id': str(user.id),
+                        'full_name': f"{user.first_name} {user.last_name}".strip(),
+                        'phone_number': user.phone_number,
+                        'role': transaction.employee_membership.role,
+                        'role_display': transaction.employee_membership.get_role_display(),
+                    }
+                    
+                    # Avatar qo'shish
+                    if profile and profile.avatar:
+                        try:
+                            employee_data['avatar'] = profile.avatar.url
+                        except:
+                            employee_data['avatar'] = None
+                    else:
+                        employee_data['avatar'] = None
+                    
+                    transaction_data['employee'] = employee_data
+                else:
+                    transaction_data['employee'] = None
+                
+                result.append(transaction_data)
+            
+            return result
+        except Exception as e:
+            return []
 
 
 class StudentRelativeSerializer(serializers.ModelSerializer):

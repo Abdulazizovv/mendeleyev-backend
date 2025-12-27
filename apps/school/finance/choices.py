@@ -3,6 +3,12 @@
 from django.db import models
 
 
+class CategoryType(models.TextChoices):
+    """Kategoriya turi."""
+    INCOME = 'income', 'Kirim'
+    EXPENSE = 'expense', 'Chiqim'
+
+
 class IncomeCategory(models.TextChoices):
     """Kirim turlari."""
     STUDENT_PAYMENT = 'student_payment', "O'quvchi to'lovi"

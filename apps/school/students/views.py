@@ -249,10 +249,12 @@ class StudentDetailView(APIView):
             student_profile = StudentProfile.objects.select_related(
                 'user_branch',
                 'user_branch__user',
+                'user_branch__user__profile',
                 'user_branch__branch',
                 'balance'  # StudentBalance
             ).prefetch_related(
-                'relatives'
+                'relatives',
+                'subscriptions',  # StudentSubscription
             ).get(
                 id=student_id,
                 deleted_at__isnull=True
@@ -267,7 +269,11 @@ class StudentDetailView(APIView):
             student_profile,
             context={
                 'request': request,
-                'include_finance_details': True  # Detail view uchun barcha moliyaviy ma'lumotlar
+                'include_finance_details': True,  # Moliyaviy ma'lumotlar
+                'include_relatives': True,  # Yaqinlar ro'yxati
+                'include_subscriptions': True,  # Abonementlar
+                'include_payment_due': True,  # To'lov xulosa
+                'include_recent_transactions': True,  # Oxirgi tranzaksiyalar
             }
         )
         return Response(serializer.data)
@@ -309,7 +315,13 @@ class StudentDetailView(APIView):
 
         response_serializer = StudentProfileSerializer(
             student_profile,
-            context={'request': request, 'include_finance_details': True}
+            context={
+                'request': request, 
+                'include_finance_details': True,
+                'include_relatives': True,
+                'include_subscriptions': True,
+                'include_payment_due': True,
+            }
         )
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 

@@ -424,6 +424,8 @@ class SalaryPaymentService:
                 metadata['processed_by_id'] = str(processed_by.id)
                 metadata['processed_by_name'] = processed_by.get_full_name()
             
+            # Transaction yaratish - status='completed' bo'lgani uchun
+            # Transaction.save() avtomatik ravishda kassa balansini yangilaydi
             cash_transaction = CashTransaction.objects.create(
                 branch=staff.branch,
                 cash_register=cash_register,
@@ -438,8 +440,8 @@ class SalaryPaymentService:
                 metadata=metadata
             )
             
-            # Update cash register balance
-            cash_register.update_balance(amount, CashTransactionType.SALARY)
+            # ESLATMA: Kassa balansi Transaction.save() metodida avtomatik yangilanadi
+            # update_balance() ni qo'shimcha chaqirish shart emas
             
             result['cash_transaction'] = cash_transaction
         

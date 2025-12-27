@@ -1,7 +1,7 @@
 """
 Moliya tizimi views.
 """
-from rest_framework import generics, status
+from rest_framework import generics, status, serializers
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.filters import SearchFilter, OrderingFilter
@@ -21,8 +21,10 @@ from .models import (
     SubscriptionPlan,
     Discount,
     Payment,
+    StudentSubscription,
     TransactionType,
     TransactionStatus,
+    FinanceCategory,
 )
 from .serializers import (
     CashRegisterSerializer,
@@ -33,6 +35,11 @@ from .serializers import (
     DiscountSerializer,
     PaymentSerializer,
     PaymentCreateSerializer,
+    StudentSubscriptionSerializer,
+    StudentSubscriptionCreateSerializer,
+    PaymentDueSummarySerializer,
+    FinanceCategorySerializer,
+    FinanceCategoryListSerializer,
 )
 from .permissions import CanManageFinance
 from apps.branch.models import Branch, BranchMembership, BranchRole
@@ -43,7 +50,17 @@ class BaseFinanceView:
     """Asosiy moliya view mixin."""
     
     def _get_branch_id(self):
-        """Branch ID ni olish."""
+        """
+        Branch ID ni olish.
+        
+        Middleware request.branch_id o'rnatadi.
+        Fallback sifatida manual extraction.
+        """
+        # Middleware dan
+        if hasattr(self.request, 'branch_id') and self.request.branch_id:
+            return self.request.branch_id
+        
+        # Fallback: manual extraction
         # JWT claim
         if hasattr(self.request, "auth") and isinstance(self.request.auth, dict):
             br_claim = self.request.auth.get("br") or self.request.auth.get("branch_id")
@@ -73,7 +90,147 @@ class BaseFinanceView:
             except:
                 pass
         
+        # User membership dan olish
+        try:
+            membership = BranchMembership.objects.filter(
+                user=self.request.user,
+                deleted_at__isnull=True
+            ).first()
+            if membership and membership.branch_id:
+                return str(membership.branch_id)
+        except Exception:
+            pass
+        
         return None
+    
+    def _is_super_admin(self):
+        """Super admin ekanligini tekshirish."""
+        # Middleware dan
+        if hasattr(self.request, 'is_super_admin'):
+            return self.request.is_super_admin
+        
+        # Fallback: manual check
+        if self.request.user.is_superuser:
+            return True
+        
+        try:
+            membership = BranchMembership.objects.filter(
+                user=self.request.user,
+                deleted_at__isnull=True
+            ).first()
+            return membership and membership.role == BranchRole.SUPER_ADMIN
+        except Exception:
+            return False
+    
+    def _should_auto_approve(self):
+        """Tranzaksiya avtomatik tasdiqlanishi kerakligini aniqlash."""
+        # Super admin - manual tasdiq talab qilinadi
+        if self._is_super_admin():
+            return False
+        
+        # Branch admin - avtomatik tasdiqlanadi
+        try:
+            membership = BranchMembership.objects.filter(
+                user=self.request.user,
+                deleted_at__isnull=True
+            ).first()
+            if membership and membership.role == BranchRole.BRANCH_ADMIN:
+                return True
+        except Exception:
+            pass
+        
+        # Boshqa rollar - manual tasdiq
+        return False
+
+
+# ==================== Finance Category Views ====================
+
+@extend_schema(tags=['Finance Categories'])
+class FinanceCategoryListCreateView(BaseFinanceView, generics.ListCreateAPIView):
+    """Kategoriyalar ro'yxati va yaratish."""
+    
+    permission_classes = [IsAuthenticated, CanManageFinance]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['type', 'is_active', 'parent']
+    search_fields = ['name', 'code', 'description']
+    ordering_fields = ['name', 'code', 'created_at']
+    ordering = ['type', 'name']
+    
+    def get_queryset(self):
+        """QuerySet ni olish."""
+        queryset = FinanceCategory.objects.select_related('branch', 'parent')
+        
+        # Super admin barcha kategoriyalarni ko'radi
+        if self._is_super_admin():
+            return queryset
+        
+        # Oddiy foydalanuvchilar: global + o'z filiali kategoriyalari
+        branch_id = self._get_branch_id()
+        if branch_id:
+            queryset = queryset.filter(
+                Q(branch__isnull=True) | Q(branch_id=branch_id)
+            )
+        else:
+            queryset = queryset.filter(branch__isnull=True)
+        
+        return queryset
+    
+    def get_serializer_class(self):
+        """Serializer tanlash."""
+        if self.request.method == 'GET':
+            return FinanceCategoryListSerializer
+        return FinanceCategorySerializer
+    
+    def perform_create(self, serializer):
+        """Kategoriya yaratish."""
+        # Agar branch berilmagan bo'lsa, requestdan olish
+        if 'branch' not in serializer.validated_data or serializer.validated_data.get('branch') is None:
+            # Super admin global kategoriya yaratishi mumkin
+            if self._is_super_admin():
+                # Super admin uchun: branch berilmasa, global kategoriya
+                serializer.save()  # branch=None (global)
+            else:
+                # Oddiy foydalanuvchilar uchun: DOIM filial kategoriya
+                branch_id = self._get_branch_id()
+                if not branch_id:
+                    raise serializers.ValidationError({
+                        'branch': 'Branch ID topilmadi. Iltimos X-Branch-Id headerni yuboring.'
+                    })
+                serializer.save(branch_id=branch_id)
+        else:
+            # Branch aniq berilgan
+            serializer.save()
+
+
+@extend_schema(tags=['Finance Categories'])
+class FinanceCategoryDetailView(BaseFinanceView, generics.RetrieveUpdateDestroyAPIView):
+    """Kategoriya detali, o'zgartirish va o'chirish."""
+    
+    permission_classes = [IsAuthenticated, CanManageFinance]
+    serializer_class = FinanceCategorySerializer
+    
+    def get_queryset(self):
+        """QuerySet ni olish."""
+        queryset = FinanceCategory.objects.select_related('branch', 'parent')
+        
+        # Super admin barcha kategoriyalarni ko'radi
+        if self._is_super_admin():
+            return queryset
+        
+        # Oddiy foydalanuvchilar: global + o'z filiali kategoriyalari
+        branch_id = self._get_branch_id()
+        if branch_id:
+            pass
+        
+        # Oddiy foydalanuvchilar: global + o'z filiali kategoriyalari
+        if branch_id:
+            queryset = queryset.filter(
+                Q(branch__isnull=True) | Q(branch_id=branch_id)
+            )
+        else:
+            queryset = queryset.filter(branch__isnull=True)
+        
+        return queryset
 
 
 # ==================== Cash Register Views ====================
@@ -109,9 +266,20 @@ class CashRegisterListView(generics.ListCreateAPIView, BaseFinanceView):
     
     def get_serializer_class(self):
         """Serializer klassini olish."""
-        if self.request.method == 'POST':
-            return CashRegisterSerializer
         return CashRegisterSerializer
+    
+    def perform_create(self, serializer):
+        """Kassa yaratish."""
+        # Agar branch berilmagan bo'lsa, requestdan olish
+        if 'branch' not in serializer.validated_data or serializer.validated_data.get('branch') is None:
+            branch_id = self._get_branch_id()
+            if not branch_id:
+                raise serializers.ValidationError({
+                    'branch': 'Branch ID topilmadi. Iltimos X-Branch-Id headerni yuboring.'
+                })
+            serializer.save(branch_id=branch_id)
+        else:
+            serializer.save()
 
 
 class CashRegisterDetailView(generics.RetrieveUpdateDestroyAPIView, BaseFinanceView):
@@ -150,26 +318,39 @@ class TransactionListView(generics.ListCreateAPIView, BaseFinanceView):
             OpenApiParameter('transaction_type', OpenApiTypes.STR, description='Tranzaksiya turi'),
             OpenApiParameter('status', OpenApiTypes.STR, description='Holat'),
             OpenApiParameter('cash_register', OpenApiTypes.UUID, description='Kassa ID'),
+            OpenApiParameter('category', OpenApiTypes.UUID, description='Kategoriya ID'),
+            OpenApiParameter('student_profile', OpenApiTypes.UUID, description='O\'quvchi ID'),
+            OpenApiParameter('employee_membership', OpenApiTypes.UUID, description='Xodim membership ID'),
+            OpenApiParameter('date_from', OpenApiTypes.DATE, description='Boshlanish sanasi (YYYY-MM-DD)'),
+            OpenApiParameter('date_to', OpenApiTypes.DATE, description='Tugash sanasi (YYYY-MM-DD)'),
+            OpenApiParameter('payment_method', OpenApiTypes.STR, description='To\'lov usuli'),
             OpenApiParameter('search', OpenApiTypes.STR, description='Qidirish'),
             OpenApiParameter('ordering', OpenApiTypes.STR, description='Tartiblash'),
         ],
     )
     def get_queryset(self):
         """Tranzaksiyalar ro'yxatini olish."""
-        branch_id = self._get_branch_id()
-        if not branch_id:
-            return Transaction.objects.none()
-        
-        queryset = Transaction.objects.filter(
-            branch_id=branch_id,
-            deleted_at__isnull=True
-        ).select_related(
+        queryset = Transaction.objects.select_related(
             'branch',
             'cash_register',
+            'category',
             'student_profile',
+            'student_profile__user_branch',
+            'student_profile__user_branch__user',
             'employee_membership',
             'employee_membership__user',
+            'employee_membership__user__profile',
         )
+        
+        # Super admin barcha tranzaksiyalarni ko'radi
+        if not self._is_super_admin():
+            branch_id = self._get_branch_id()
+            if not branch_id:
+                return Transaction.objects.none()
+            queryset = queryset.filter(branch_id=branch_id)
+        
+        # Soft delete filtri
+        queryset = queryset.filter(deleted_at__isnull=True)
         
         # Filterlar
         transaction_type = self.request.query_params.get('transaction_type')
@@ -184,6 +365,44 @@ class TransactionListView(generics.ListCreateAPIView, BaseFinanceView):
         if cash_register_id:
             queryset = queryset.filter(cash_register_id=cash_register_id)
         
+        category_id = self.request.query_params.get('category')
+        if category_id:
+            queryset = queryset.filter(category_id=category_id)
+        
+        # Student filter
+        student_profile_id = self.request.query_params.get('student_profile')
+        if student_profile_id:
+            queryset = queryset.filter(student_profile_id=student_profile_id)
+        
+        # Employee filter
+        employee_membership_id = self.request.query_params.get('employee_membership')
+        if employee_membership_id:
+            queryset = queryset.filter(employee_membership_id=employee_membership_id)
+        
+        # Payment method filter
+        payment_method = self.request.query_params.get('payment_method')
+        if payment_method:
+            queryset = queryset.filter(payment_method=payment_method)
+        
+        # Date range filter
+        date_from = self.request.query_params.get('date_from')
+        if date_from:
+            from datetime import datetime
+            try:
+                date_from_obj = datetime.strptime(date_from, '%Y-%m-%d')
+                queryset = queryset.filter(transaction_date__gte=date_from_obj)
+            except ValueError:
+                pass
+        
+        date_to = self.request.query_params.get('date_to')
+        if date_to:
+            from datetime import datetime, timedelta
+            try:
+                date_to_obj = datetime.strptime(date_to, '%Y-%m-%d') + timedelta(days=1)
+                queryset = queryset.filter(transaction_date__lt=date_to_obj)
+            except ValueError:
+                pass
+        
         return queryset
     
     def get_serializer_class(self):
@@ -191,6 +410,34 @@ class TransactionListView(generics.ListCreateAPIView, BaseFinanceView):
         if self.request.method == 'POST':
             return TransactionCreateSerializer
         return TransactionSerializer
+    
+    def perform_create(self, serializer):
+        """Tranzaksiya yaratish."""
+        # Agar branch berilmagan bo'lsa, requestdan olish
+        if 'branch' not in serializer.validated_data or serializer.validated_data.get('branch') is None:
+            branch_id = self._get_branch_id()
+            if not branch_id:
+                raise serializers.ValidationError({
+                    'branch': 'Branch ID topilmadi. Iltimos X-Branch-Id headerni yuboring.'
+                })
+            # User role asosida status aniqlash
+            auto_approve = self._should_auto_approve()
+            serializer.save(branch_id=branch_id, auto_approve=auto_approve)
+        else:
+            auto_approve = self._should_auto_approve()
+            serializer.save(auto_approve=auto_approve)
+    
+    def create(self, request, *args, **kwargs):
+        """Tranzaksiya yaratish va to'liq ma'lumot qaytarish."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        
+        # Response uchun TransactionSerializer ishlatish
+        instance = serializer.instance
+        response_serializer = TransactionSerializer(instance)
+        headers = self.get_success_headers(response_serializer.data)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
 
 class TransactionDetailView(generics.RetrieveUpdateDestroyAPIView, BaseFinanceView):
@@ -200,19 +447,26 @@ class TransactionDetailView(generics.RetrieveUpdateDestroyAPIView, BaseFinanceVi
     
     def get_queryset(self):
         """Tranzaksiya queryset."""
-        branch_id = self._get_branch_id()
-        if not branch_id:
-            return Transaction.objects.none()
-        
-        return Transaction.objects.filter(
-            branch_id=branch_id,
-            deleted_at__isnull=True
-        ).select_related(
+        queryset = Transaction.objects.select_related(
             'branch',
             'cash_register',
+            'category',
             'student_profile',
             'employee_membership',
         )
+        
+        # Super admin barcha tranzaksiyalarni ko'radi
+        if not self._is_super_admin():
+            branch_id = self._get_branch_id()
+            if not branch_id:
+                return Transaction.objects.none()
+            queryset = queryset.filter(branch_id=branch_id)
+        
+        return queryset.filter(deleted_at__isnull=True)
+
+
+# ==================== Student Balance Views ====================
+
 
 
 # ==================== Student Balance Views ====================
@@ -305,6 +559,24 @@ class SubscriptionPlanListView(generics.ListCreateAPIView, BaseFinanceView):
             queryset = queryset.filter(is_active=is_active.lower() == 'true')
         
         return queryset
+    
+    def perform_create(self, serializer):
+        """Abonement tarifi yaratish."""
+        # Agar branch berilmagan bo'lsa, requestdan olish
+        if 'branch' not in serializer.validated_data:
+            branch_id = self._get_branch_id()
+            if branch_id:
+                serializer.save(branch_id=branch_id)
+            else:
+                # Super admin global tarif yaratishi mumkin
+                if self._is_super_admin():
+                    serializer.save()  # Global tarif
+                else:
+                    raise serializers.ValidationError({
+                        'branch': 'Branch ID talab qilinadi'
+                    })
+        else:
+            serializer.save()
 
 
 class SubscriptionPlanDetailView(generics.RetrieveUpdateDestroyAPIView, BaseFinanceView):
@@ -361,6 +633,24 @@ class DiscountListView(generics.ListCreateAPIView, BaseFinanceView):
             queryset = queryset.filter(is_active=is_active.lower() == 'true')
         
         return queryset
+    
+    def perform_create(self, serializer):
+        """Chegirma yaratish."""
+        # Agar branch berilmagan bo'lsa, requestdan olish
+        if 'branch' not in serializer.validated_data:
+            branch_id = self._get_branch_id()
+            if branch_id:
+                serializer.save(branch_id=branch_id)
+            else:
+                # Super admin global chegirma yaratishi mumkin
+                if self._is_super_admin():
+                    serializer.save()  # Global chegirma
+                else:
+                    raise serializers.ValidationError({
+                        'branch': 'Branch ID talab qilinadi'
+                    })
+        else:
+            serializer.save()
 
 
 class DiscountDetailView(generics.RetrieveUpdateDestroyAPIView, BaseFinanceView):
@@ -413,6 +703,8 @@ class PaymentListView(generics.ListCreateAPIView, BaseFinanceView):
             deleted_at__isnull=True
         ).select_related(
             'student_profile',
+            'student_profile__user_branch__user',
+            'student_profile__user_branch__user__profile',
             'branch',
             'subscription_plan',
             'discount',
@@ -430,6 +722,19 @@ class PaymentListView(generics.ListCreateAPIView, BaseFinanceView):
         if self.request.method == 'POST':
             return PaymentCreateSerializer
         return PaymentSerializer
+    
+    def perform_create(self, serializer):
+        """To'lov yaratish."""
+        # Agar branch berilmagan bo'lsa, requestdan olish
+        if 'branch' not in serializer.validated_data or serializer.validated_data.get('branch') is None:
+            branch_id = self._get_branch_id()
+            if not branch_id:
+                raise serializers.ValidationError({
+                    'branch': 'Branch ID topilmadi. Iltimos X-Branch-Id headerni yuboring.'
+                })
+            serializer.save(branch_id=branch_id)
+        else:
+            serializer.save()
 
 
 class PaymentDetailView(generics.RetrieveAPIView, BaseFinanceView):
@@ -557,3 +862,189 @@ class FinanceStatisticsView(generics.GenericAPIView, BaseFinanceView):
             'monthly_stats': list(monthly_stats),
         })
 
+
+class StudentSubscriptionListView(BaseFinanceView, generics.ListCreateAPIView):
+    """O'quvchi abonementlari ro'yxati va yaratish API."""
+    
+    permission_classes = [IsAuthenticated, CanManageFinance]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['student_profile', 'subscription_plan', 'is_active']
+    search_fields = ['student_profile__user_branch__user__first_name', 'student_profile__user_branch__user__last_name']
+    ordering_fields = ['created_at', 'next_payment_date', 'total_debt']
+    ordering = ['-created_at']
+    
+    def get_queryset(self):
+        branch_id = self._get_branch_id()
+        return StudentSubscription.objects.filter(
+            branch_id=branch_id,
+            deleted_at__isnull=True
+        ).select_related(
+            'student_profile',
+            'student_profile__user_branch',
+            'student_profile__user_branch__user',
+            'subscription_plan',
+            'branch'
+        )
+    
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return StudentSubscriptionCreateSerializer
+        return StudentSubscriptionSerializer
+    
+    @extend_schema(
+        summary="O'quvchi abonementlari ro'yxati",
+        description="O'quvchi abonementlarini ro'yxatini olish. Branch ID header orqali berilishi kerak.",
+        parameters=[
+            OpenApiParameter(name='student_profile', type=OpenApiTypes.UUID, description='O\'quvchi profili ID'),
+            OpenApiParameter(name='subscription_plan', type=OpenApiTypes.UUID, description='Abonement tarifi ID'),
+            OpenApiParameter(name='is_active', type=OpenApiTypes.BOOL, description='Faol abonementlar'),
+        ]
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+    
+    @extend_schema(
+        summary="O'quvchi abonementi yaratish",
+        description="O'quvchi uchun yangi abonement yaratish."
+    )
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
+
+
+class StudentSubscriptionDetailView(BaseFinanceView, generics.RetrieveUpdateDestroyAPIView):
+    """O'quvchi abonementi detail API."""
+    
+    permission_classes = [IsAuthenticated, CanManageFinance]
+    serializer_class = StudentSubscriptionSerializer
+    lookup_field = 'id'
+    
+    def get_queryset(self):
+        branch_id = self._get_branch_id()
+        return StudentSubscription.objects.filter(
+            branch_id=branch_id,
+            deleted_at__isnull=True
+        ).select_related(
+            'student_profile',
+            'student_profile__user_branch',
+            'student_profile__user_branch__user',
+            'subscription_plan',
+            'branch'
+        )
+    
+    @extend_schema(
+        summary="O'quvchi abonementi tafsilotlari",
+        description="O'quvchi abonementi to'liq ma'lumotlarini olish."
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+    
+    @extend_schema(
+        summary="O'quvchi abonementini yangilash",
+        description="O'quvchi abonementi ma'lumotlarini yangilash."
+    )
+    def put(self, request, *args, **kwargs):
+        return super().put(request, *args, **kwargs)
+    
+    @extend_schema(
+        summary="O'quvchi abonementini o'chirish",
+        description="O'quvchi abonementini o'chirish (soft delete)."
+    )
+    def delete(self, request, *args, **kwargs):
+        return super().delete(request, *args, **kwargs)
+
+
+class PaymentDueSummaryView(BaseFinanceView, generics.GenericAPIView):
+    """O'quvchi to'lov xulosa API.
+    
+    O'quvchi qancha to'lashi kerakligini ko'rsatadi.
+    """
+    
+    permission_classes = [IsAuthenticated]
+    serializer_class = PaymentDueSummarySerializer
+    
+    @extend_schema(
+        summary="O'quvchi to'lov xulosa",
+        description="""
+        O'quvchi qancha to'lashi kerakligini ko'rsatadi.
+        
+        Qaytariladi:
+        - Joriy davr uchun summa
+        - Qarz summasi
+        - Jami to'lanishi kerak
+        - Keyingi to'lov sanasi
+        - Kechikkan oylar soni
+        
+        Query parametrlar:
+        - student_profile_id: O'quvchi profili ID (UUID)
+        """,
+        parameters=[
+            OpenApiParameter(
+                name='student_profile_id',
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description='O\'quvchi profili ID'
+            ),
+        ]
+    )
+    def get(self, request, *args, **kwargs):
+        """O'quvchi to'lov xulosasini olish."""
+        from datetime import date
+        
+        branch_id = self._get_branch_id()
+        student_profile_id = request.query_params.get('student_profile_id')
+        
+        if not student_profile_id:
+            return Response(
+                {'error': 'student_profile_id parametri talab qilinadi'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            student_profile = StudentProfile.objects.get(id=student_profile_id)
+        except StudentProfile.DoesNotExist:
+            return Response(
+                {'error': 'O\'quvchi profili topilmadi'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # O'quvchining faol abonementlarini olish
+        subscriptions = StudentSubscription.objects.filter(
+            student_profile=student_profile,
+            branch_id=branch_id,
+            is_active=True,
+            deleted_at__isnull=True
+        ).select_related('subscription_plan')
+        
+        if not subscriptions.exists():
+            return Response(
+                {'error': 'O\'quvchida faol abonement topilmadi'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Har bir abonement uchun to'lov xulosasini hisoblash
+        results = []
+        today = date.today()
+        
+        for subscription in subscriptions:
+            payment_due = subscription.calculate_payment_due()
+            
+            results.append({
+                'student_profile_id': str(student_profile.id),
+                'student_name': student_profile.full_name,
+                'subscription_id': str(subscription.id),
+                'subscription_plan_name': subscription.subscription_plan.name,
+                'subscription_period': subscription.subscription_plan.get_period_display(),
+                'subscription_price': subscription.subscription_plan.price,
+                'current_amount': payment_due['current_amount'],
+                'debt_amount': payment_due['debt_amount'],
+                'total_amount': payment_due['total_amount'],
+                'next_due_date': payment_due['next_due_date'],
+                'last_payment_date': subscription.last_payment_date,
+                'overdue_months': payment_due['overdue_months'],
+                'is_expired': payment_due['is_expired'],
+                'is_overdue': today > subscription.next_payment_date if subscription.next_payment_date else False,
+            })
+        
+        serializer = self.get_serializer(results, many=True)
+        return Response(serializer.data)

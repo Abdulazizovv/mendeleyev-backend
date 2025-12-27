@@ -22,8 +22,11 @@ Ushbu hujjatlar arxitektura, API, xavfsizlik, testlar va ekspluatatsiya bo'yicha
   - [Subjects (Fanlar)](./api/subjects.md)
   - [Rooms (Binolar va Xonalar)](./api/rooms.md)
   - [Students (O'quvchilar)](./api/students.md)
+  - [Student Detail (O'quvchi tafsilotlar) - **NEW**](./api/student-detail.md)
   - [Dashboard (O'qituvchi/O'quvchi)](./api/dashboard.md)
   - [Finance (Moliya)](./api/finance.md)
+  - [Student Payments API (O'quvchi to'lovlari)](./student-payments-api.md)
+  - [Student Subscription API (O'quvchi abonementlari) - **NEW**](./student-subscription-api.md)
   - [Filtering, Search va Ordering](./api/filtering-search-ordering.md)
 - Integratsiya
   - [Frontend auth integratsiyasi](./frontend/auth-integration.md)
