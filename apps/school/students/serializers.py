@@ -549,6 +549,119 @@ class StudentRelativeCreateSerializer(serializers.ModelSerializer):
             'notes',
         ]
         read_only_fields = ('id',)
+    
+    def validate_first_name(self, value):
+        """Ism majburiy maydon."""
+        if not value or not value.strip():
+            raise serializers.ValidationError("Ism majburiy maydon.")
+        return value.strip()
+    
+    def validate_relationship_type(self, value):
+        """Munosabat turi validatsiyasi."""
+        if not value:
+            raise serializers.ValidationError("Munosabat turi majburiy maydon.")
+        return value
+    
+    def validate_phone_number(self, value):
+        """Telefon raqam formatini tekshirish."""
+        if value:
+            import re
+            # Normalize phone number
+            normalized = re.sub(r'\s+', '', str(value))
+            # Basic format check
+            if not re.match(r'^\+?[0-9]{7,15}$', normalized):
+                raise serializers.ValidationError("Telefon raqami noto'g'ri formatda.")
+            return normalized
+        return value
+    
+    def validate(self, attrs):
+        """Umumiy validatsiya."""
+        # is_primary_contact validation
+        is_primary_contact = attrs.get('is_primary_contact', False)
+        student_profile = attrs.get('student_profile')
+        
+        if is_primary_contact and student_profile:
+            # Boshqa yaqinlarda is_primary_contact=False qilish
+            StudentRelative.objects.filter(
+                student_profile=student_profile,
+                is_primary_contact=True,
+                deleted_at__isnull=True
+            ).update(
+                is_primary_contact=False
+            )
+        
+        return attrs
+
+
+class StudentRelativeUpdateSerializer(serializers.ModelSerializer):
+    """O'quvchi yaqinini yangilash uchun serializer."""
+    
+    class Meta:
+        model = StudentRelative
+        fields = [
+            'id',
+            'relationship_type',
+            'first_name',
+            'middle_name',
+            'last_name',
+            'phone_number',
+            'email',
+            'gender',
+            'date_of_birth',
+            'address',
+            'workplace',
+            'position',
+            'passport_number',
+            'photo',
+            'is_primary_contact',
+            'is_guardian',
+            'additional_info',
+            'notes',
+        ]
+        read_only_fields = ('id',)
+    
+    def validate_first_name(self, value):
+        """Ism majburiy maydon."""
+        if not value or not value.strip():
+            raise serializers.ValidationError("Ism majburiy maydon.")
+        return value.strip()
+    
+    def validate_relationship_type(self, value):
+        """Munosabat turi validatsiyasi."""
+        if not value:
+            raise serializers.ValidationError("Munosabat turi majburiy maydon.")
+        return value
+    
+    def validate_phone_number(self, value):
+        """Telefon raqam formatini tekshirish."""
+        if value:
+            import re
+            # Normalize phone number
+            normalized = re.sub(r'\s+', '', str(value))
+            # Basic format check
+            if not re.match(r'^\+?[0-9]{7,15}$', normalized):
+                raise serializers.ValidationError("Telefon raqami noto'g'ri formatda.")
+            return normalized
+        return value
+    
+    def validate(self, attrs):
+        """Umumiy validatsiya."""
+        # is_primary_contact validation
+        is_primary_contact = attrs.get('is_primary_contact')
+        
+        # Agar is_primary_contact=True bo'lsa, boshqa yaqinlarda False qilish
+        if is_primary_contact is True and self.instance:
+            student_profile = self.instance.student_profile
+            # Boshqa yaqinlarda is_primary_contact=False qilish
+            StudentRelative.objects.filter(
+                student_profile=student_profile,
+                is_primary_contact=True,
+                deleted_at__isnull=True
+            ).exclude(id=self.instance.id).update(
+                is_primary_contact=False
+            )
+        
+        return attrs
 
 
 class StudentProfileSerializer(serializers.ModelSerializer):

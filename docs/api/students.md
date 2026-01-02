@@ -923,6 +923,8 @@ POST /api/v1/school/students/{student_id}/relatives/
 }
 ```
 
+**Response:** `201 Created` — yaratilgan yaqin ma'lumotlari
+
 **Relationship Types:**
 - `father` - Otasi
 - `mother` - Onasi
@@ -934,6 +936,74 @@ POST /api/v1/school/students/{student_id}/relatives/
 - `aunt` - Xolasi/Teyzasi
 - `guardian` - Vasiy
 - `other` - Boshqa
+
+#### Yaqin yangilash
+```
+PATCH /api/v1/school/students/{student_id}/relatives/{relative_id}/
+```
+
+**Permissions:** IsAuthenticated (super_admin yoki branch_admin o'z filialida)
+
+**Request Body:**
+```json
+{
+  "first_name": "Olim",
+  "phone_number": "+998901234568",
+  "is_primary_contact": true
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "id": "uuid",
+  "student_profile": "uuid",
+  "relationship_type": "father",
+  "relationship_type_display": "Otasi",
+  "first_name": "Olim",
+  "last_name": "Valiyev",
+  "middle_name": "Karim o'g'li",
+  "full_name": "Olim Karim o'g'li Valiyev",
+  "phone_number": "+998901234568",
+  "email": "olim@example.com",
+  "gender": "male",
+  "date_of_birth": "1980-01-01",
+  "address": "Toshkent shahri",
+  "workplace": "IT Kompaniya",
+  "position": "Dasturchi",
+  "passport_number": "AB1234568",
+  "photo": "/media/students/relatives/photo_123.jpg",
+  "photo_url": "https://api.example.com/media/students/relatives/photo_123.jpg",
+  "is_primary_contact": true,
+  "is_guardian": true,
+  "additional_info": {},
+  "notes": "",
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-15T10:00:00Z"
+}
+```
+
+**Eslatmalar:**
+- Barcha maydonlar ixtiyoriy (partial update)
+- `is_primary_contact=True` bo'lsa, boshqa yaqinlarda avtomatik `False` qilinadi
+- `first_name` va `relationship_type` majburiy maydonlar (yangi yaratishda)
+- Telefon raqam formatini tekshirish: `^\+?[0-9]{7,15}$`
+
+#### Yaqin o'chirish
+```
+DELETE /api/v1/school/students/{student_id}/relatives/{relative_id}/
+```
+
+**Permissions:** IsAuthenticated (super_admin yoki branch_admin o'z filialida)
+
+**Response (204 No Content):**
+```
+(Empty body)
+```
+
+**Eslatmalar:**
+- Soft delete ishlatiladi (deleted_at maydoni to'ldiriladi)
+- O'chirilgan yaqinlar ro'yxatda ko'rinmaydi
 
 ---
 

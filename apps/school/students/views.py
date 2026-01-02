@@ -12,12 +12,15 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 from django.db import transaction
 from django.db import models
+from django.shortcuts import get_object_or_404
+from rest_framework.exceptions import PermissionDenied
 
 from .serializers import (
     StudentCreateSerializer,
     StudentProfileSerializer,
     StudentRelativeCreateSerializer,
     StudentRelativeSerializer,
+    StudentRelativeUpdateSerializer,
     StudentDocumentsUpdateSerializer,
     StudentUpdateSerializer,
     UserCheckSerializer,
@@ -397,6 +400,15 @@ class StudentRelativeListView(APIView):
     """O'quvchi yaqinlari ro'yxati."""
     permission_classes = [IsAuthenticated]
     
+    def _check_permission(self, request, student_profile):
+        """Permission tekshiruvi."""
+        user = request.user
+        branch_id = str(student_profile.user_branch.branch_id)
+        
+        if not user.is_superuser:
+            if not BranchMembership.has_role(user.id, branch_id, [BranchRole.BRANCH_ADMIN]):
+                raise PermissionDenied("Ruxsat yo'q.")
+    
     @extend_schema(
         responses={200: StudentRelativeSerializer(many=True)},
         summary="O'quvchi yaqinlari",
@@ -418,6 +430,9 @@ class StudentRelativeListView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
+        # Permission tekshiruvi
+        self._check_permission(request, student_profile)
+        
         relatives = student_profile.relatives.filter(deleted_at__isnull=True)
         serializer = StudentRelativeSerializer(
             relatives,
@@ -432,9 +447,13 @@ class StudentRelativeListView(APIView):
         summary="O'quvchi yaqini qo'shish",
         description="O'quvchiga yaqin qo'shish"
     )
+    @transaction.atomic
     def post(self, request, student_id):
         try:
-            student_profile = StudentProfile.objects.get(
+            student_profile = StudentProfile.objects.select_related(
+                'user_branch',
+                'user_branch__branch'
+            ).get(
                 id=student_id,
                 deleted_at__isnull=True
             )
@@ -443,6 +462,9 @@ class StudentRelativeListView(APIView):
                 {"detail": "O'quvchi topilmadi."},
                 status=status.HTTP_404_NOT_FOUND
             )
+        
+        # Permission tekshiruvi
+        self._check_permission(request, student_profile)
         
         serializer = StudentRelativeCreateSerializer(data={
             **request.data,
@@ -456,6 +478,140 @@ class StudentRelativeListView(APIView):
             context={'request': request}
         )
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+class StudentRelativeUpdateView(APIView):
+    """O'quvchi yaqinini yangilash va o'chirish endpointi."""
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    
+    def _check_permission(self, request, student_profile):
+        """Permission tekshiruvi."""
+        user = request.user
+        branch_id = str(student_profile.user_branch.branch_id)
+        
+        if not user.is_superuser:
+            if not BranchMembership.has_role(user.id, branch_id, [BranchRole.BRANCH_ADMIN]):
+                raise PermissionDenied("Ruxsat yo'q.")
+    
+    def _get_student_profile(self, student_id):
+        """O'quvchi profilini olish."""
+        try:
+            return StudentProfile.objects.select_related(
+                'user_branch',
+                'user_branch__branch'
+            ).get(
+                id=student_id,
+                deleted_at__isnull=True
+            )
+        except StudentProfile.DoesNotExist:
+            return None
+    
+    def _get_relative(self, student_profile, relative_id):
+        """Yaqinni olish."""
+        try:
+            return StudentRelative.objects.get(
+                id=relative_id,
+                student_profile=student_profile,
+                deleted_at__isnull=True
+            )
+        except StudentRelative.DoesNotExist:
+            return None
+    
+    @extend_schema(
+        request=StudentRelativeUpdateSerializer,
+        responses={200: StudentRelativeSerializer},
+        summary="O'quvchi yaqinini yangilash",
+        description="""
+        O'quvchi yaqinini yangilash.
+        
+        **Xususiyatlar:**
+        - Barcha maydonlar ixtiyoriy (partial update)
+        - `is_primary_contact=True` bo'lsa, boshqa yaqinlarda avtomatik `False` qilinadi
+        - Permission: super_admin yoki branch_admin (o'z filialida)
+        
+        **Misol so'rov:**
+        ```json
+        {
+          "first_name": "Olim",
+          "phone_number": "+998901234568",
+          "is_primary_contact": true
+        }
+        ```
+        """
+    )
+    @transaction.atomic
+    def patch(self, request, student_id, relative_id):
+        student_profile = self._get_student_profile(student_id)
+        if not student_profile:
+            return Response(
+                {"detail": "O'quvchi topilmadi."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Permission tekshiruvi
+        self._check_permission(request, student_profile)
+        
+        # Yaqinni topish
+        relative = self._get_relative(student_profile, relative_id)
+        if not relative:
+            return Response(
+                {"detail": "Yaqin topilmadi."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        serializer = StudentRelativeUpdateSerializer(
+            instance=relative,
+            data=request.data,
+            partial=True,
+            context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        
+        response_serializer = StudentRelativeSerializer(
+            relative,
+            context={'request': request}
+        )
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
+    
+    @extend_schema(
+        responses={204: None},
+        summary="O'quvchi yaqinini o'chirish",
+        description="""
+        O'quvchi yaqinini o'chirish (soft delete).
+        
+        **Xususiyatlar:**
+        - Soft delete ishlatiladi (deleted_at maydoni to'ldiriladi)
+        - Permission: super_admin yoki branch_admin (o'z filialida)
+        """
+    )
+    @transaction.atomic
+    def delete(self, request, student_id, relative_id):
+        student_profile = self._get_student_profile(student_id)
+        if not student_profile:
+            return Response(
+                {"detail": "O'quvchi topilmadi."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Permission tekshiruvi
+        self._check_permission(request, student_profile)
+        
+        # Yaqinni topish
+        relative = self._get_relative(student_profile, relative_id)
+        if not relative:
+            return Response(
+                {"detail": "Yaqin topilmadi."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Soft delete
+        from django.utils import timezone
+        relative.deleted_at = timezone.now()
+        relative.save()
+        
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class PhoneLookupMixin:

@@ -5,6 +5,7 @@ from .views import (
     StudentDetailView,
     StudentDocumentsUpdateView,
     StudentRelativeListView,
+    StudentRelativeUpdateView,
     UserCheckView,
     StudentRelativeCheckView,
 )
@@ -19,5 +20,6 @@ urlpatterns = [
     path('<uuid:student_id>/', StudentDetailView.as_view(), name='student-detail'),
     path('<uuid:student_id>/documents/', StudentDocumentsUpdateView.as_view(), name='student-documents-update'),
     path('<uuid:student_id>/relatives/', StudentRelativeListView.as_view(), name='student-relatives'),
+    path('<uuid:student_id>/relatives/<uuid:relative_id>/', StudentRelativeUpdateView.as_view(), name='student-relative-update-delete'),
 ]
 
