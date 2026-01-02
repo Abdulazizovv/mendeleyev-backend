@@ -9,6 +9,26 @@ Moliya tizimi o'quvchilar va xodimlar uchun balans, tranzaksiyalar, to'lovlar, a
 - **Permissions**: `CanManageFinance`, `CanViewFinanceReports`, `CanManageCategories`
 - **Valyuta**: So'm (butun sonlar, `BigIntegerField`)
 
+## Yangiliklar (2026-01-02)
+
+✅ **Test Coverage (26 ta yangi test):**
+- **Race Conditions** (5 tests): Concurrent operations, StudentBalance thread-safety, select_for_update() locks
+- **Privacy/Isolation** (4 tests): Branch data isolation, global categories, discount validation
+- **Permissions** (7 tests): CAN_AUTO_APPROVE, CAN_APPROVE_MANUALLY, auto-approval logic
+- **Export Functionality** (10 tests): Excel export API, Celery tasks, task status tracking
+
+✅ **Critical Bug Fixes:**
+- **StudentBalance.subtract_amount()**: Race condition fix - qo'shildi select_for_update() lock
+- **BaseFinanceView**: `_get_user_membership()` methodi qo'shildi
+- **Permissions**: `role_model` → `role_ref` ga o'zgartirildi (BranchMembership)
+- **Auto-Approval Logic**: Permission-based transaction approval (Branch Admin, Super Admin, Accountant)
+
+✅ **Excel Export System:**
+- Celery task orqali asinxron export
+- Transaction va Payment export endpoints
+- Task status tracking (PENDING, SUCCESS, FAILURE)
+- File URL generation va download
+
 ## Yangiliklar (2025-12-22)
 
 ✅ **Dinamik Kategoriyalar Tizimi:**
@@ -21,11 +41,14 @@ Moliya tizimi o'quvchilar va xodimlar uchun balans, tranzaksiyalar, to'lovlar, a
 - `VIEW_FINANCE_REPORTS` - Hisobotlarni ko'rish
 - `MANAGE_FINANCE` - Moliyani boshqarish
 - `MANAGE_CATEGORIES` - Kategoriyalarni boshqarish
+- `CAN_AUTO_APPROVE` - Avtomatik tasdiq ruxsati
+- `CAN_APPROVE_MANUALLY` - Manual tasdiq ruxsati
 
 ✅ **Bug Fixes:**
 - Permission classes: MultipleObjectsReturned xatosi tuzatildi
 - Middleware: Branch isolation yangilandi
-- Role field: select_related xatosi tuzatildi
+- Role field: select_for_related xatosi tuzatildi
+- StudentBalance race condition: select_for_update() qo'shildi
 
 ✅ **Auto Branch Assignment:**
 - Obyekt yaratishda `branch` berilmasa, avtomatik `request.branch` dan olinadi
@@ -601,6 +624,140 @@ GET /api/v1/school/finance/payments/{id}/
 
 ---
 
+### 📊 Excel Export (Yangi!)
+
+#### Export Tranzaksiyalar
+```
+POST /api/v1/school/finance/export/transactions/
+```
+
+**Ruxsatlar:**
+- **Branch Admin**: Faqat o'z filialidan export olishi mumkin. Branch ID avtomatik JWT/membership dan olinadi.
+- **Super Admin**: Istalgan filialdan export olishi mumkin. Branch ID header yoki body da berilishi kerak.
+
+**Headers:**
+```json
+{
+  "Authorization": "Bearer <token>",
+  "X-Branch-Id": "uuid"  // Super Admin uchun REQUIRED. Branch Admin uchun ignore qilinadi.
+}
+```
+
+**Request Body:**
+```json
+{
+  "branch_id": "uuid",       // Super Admin uchun (optional, header dan ham olish mumkin)
+  "transaction_type": "income",
+  "status": "completed",
+  "date_from": "2025-01-01",
+  "date_to": "2025-12-31",
+  "cash_register": "uuid",
+  "category": "uuid",
+  "student_profile": "uuid"
+}
+```
+
+**Frontend Misol:**
+```javascript
+// Branch Admin uchun (branch_id kerak emas)
+const response = await fetch('/api/v1/school/finance/export/transactions/', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${branchAdminToken}`,
+    'Content-Type': 'application/json'
+    // X-Branch-Id kerak emas - JWT dan avtomatik olinadi
+  },
+  body: JSON.stringify({
+    date_from: '2026-01-01',
+    date_to: '2026-01-04'
+  })
+});
+
+// Super Admin uchun (istalgan branch)
+const response = await fetch('/api/v1/school/finance/export/transactions/', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${superAdminToken}`,
+    'X-Branch-Id': branchId,  // Qaysi branchdan export olish
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    date_from: '2026-01-01',
+    date_to: '2026-01-04'
+  })
+});
+```
+
+**Response:**
+```json
+{
+  "message": "Export task boshlandi",
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "PENDING"
+}
+```
+
+#### Export To'lovlar
+```
+POST /api/v1/school/finance/export/payments/
+```
+
+**Request Body:**
+```json
+{
+  "student_profile": "uuid",
+  "date_from": "2025-01-01",
+  "date_to": "2025-12-31",
+  "period": "2025-12"
+}
+```
+
+#### Task Statusini Tekshirish
+```
+GET /api/v1/school/finance/export/task-status/{task_id}/
+```
+
+**Response (SUCCESS):**
+```json
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "SUCCESS",
+  "message": "Export muvaffaqiyatli",
+  "file_url": "/media/exports/finance/transactions_20260102_143022.xlsx",
+  "filename": "transactions_20260102_143022.xlsx",
+  "records_count": 523
+}
+```
+
+**Eslatma:**
+- Maksimal 50,000 ta yozuvni export qiladi
+- Celery task orqali asinxron bajariladi
+- Excel fayl avtomatik formatlanadi (bold headers, ranglar, auto-width)
+
+**Troubleshooting:**
+
+Agar `"error": "Export qilish uchun ma'lumot topilmadi"` xatoligi chiqsa:
+
+1. **Branch to'g'ri tanlanganini tekshiring** - `X-Branch-Id` headerida tranzaksiya bor branchni yuboring
+2. **Sana oralig'ini kengaytiring** - Tranzaksiyalar belgilangan sana oralig'ida bo'lishi kerak
+3. **Filterlarni olib tashlang** - Filtrlar juda qattiq bo'lsa, hech narsa topilmasligi mumkin
+
+```bash
+# Misol: Barcha tranzaksiyalarni export qilish (filtersiz)
+POST /api/v1/school/finance/export/transactions/
+Headers:
+  X-Branch-Id: <to'g'ri_branch_id>
+Body: {}  # Filtersiz
+
+# Faqat sana bilan
+Body: {
+  "date_from": "2025-01-01",  # Keng oraliq
+  "date_to": "2026-12-31"
+}
+```
+
+---
+
 ### Statistika (Statistics)
 
 #### Moliya statistikasi
@@ -690,8 +847,85 @@ GET /api/v1/school/finance/statistics/
     - `VIEW_FINANCE_REPORTS` - Hisobotlarni ko'rish
     - `MANAGE_FINANCE` - Moliyani boshqarish
     - `MANAGE_CATEGORIES` - Kategoriyalarni boshqarish
+    - `CAN_AUTO_APPROVE` - Avtomatik tasdiq ruxsati
+    - `CAN_APPROVE_MANUALLY` - Manual tasdiq ruxsati
+11. **Test Coverage**: 26 ta yangi test (race conditions, privacy, permissions, export)
+12. **Thread Safety**: StudentBalance operatsiyalari select_for_update() bilan himoyalangan
 
-## Misol So'rovlar
+## Test Coverage (2026-01-02)
+
+Moliya tizimi uchun 26 ta yangi test yaratildi:
+
+### 1. Race Conditions (5 tests)
+- `test_concurrent_add_amount` - 10 ta thread bir vaqtda add_amount()
+- `test_concurrent_subtract_amount` - 20 ta thread bir vaqtda subtract_amount()
+- `test_concurrent_mixed_operations` - 50 ta aralash operatsiya
+- `test_transaction_rollback_on_error` - Xatolik yuz berganda rollback
+- `test_concurrent_cash_register_updates` - 20 ta parallel kassa yangilash
+
+**Critical Fix**: `StudentBalance.subtract_amount()` metodida select_for_update() lock qo'shildi - race condition oldini oladi.
+
+### 2. Privacy/Isolation (4 tests)
+- `test_transaction_queryset_filters_by_branch` - Tranzaksiyalar branch bo'yicha filtrlangan
+- `test_cash_register_queryset_filters_by_branch` - Kassa branch isolation
+- `test_category_includes_branch_and_global` - Kategoriyalar (branch + global)
+- `test_discount_branch_validation` - Chegirma branch validatsiyasi
+
+### 3. Permissions (7 tests)
+- `test_branch_admin_auto_approves_income` - Branch Admin kirim avtomatik tasdiqlanadi
+- `test_branch_admin_auto_approves_expense` - Branch Admin chiqim avtomatik tasdiqlanadi
+- `test_super_admin_with_auto_approve_creates_completed` - Super Admin CAN_AUTO_APPROVE ruxsati bilan
+- `test_super_admin_without_auto_approve_creates_pending` - Super Admin ruxsatsiz PENDING yaratadi
+- `test_accountant_with_auto_approve_creates_completed` - Accountant CAN_AUTO_APPROVE bilan
+- `test_accountant_without_auto_approve_creates_pending` - Accountant ruxsatsiz PENDING
+- `test_pending_transaction_does_not_affect_balance` - PENDING tranzaksiya balansni o'zgartirmaydi
+
+**Permission Logic**:
+- Branch Admin: Har doim avtomatik tasdiq (auto-approve)
+- Super Admin: Permission-based (CAN_AUTO_APPROVE kerak)
+- Accountant/Other: Permission-based (CAN_AUTO_APPROVE kerak)
+
+### 4. Export Functionality (10 tests)
+- `test_export_transactions_starts_task` - Export task boshlash
+- `test_export_transactions_with_filters` - Filtrlar bilan export
+- `test_export_requires_authentication` - Autentifikatsiya talab qilinadi
+- `test_export_requires_branch_id` - Branch ID validation
+- `test_task_status_pending` - Task status PENDING
+- `test_task_status_success` - Task status SUCCESS va file URL
+- `test_task_status_failure` - Task status FAILURE va error
+- `test_export_task_creates_excel_file` - Real Excel fayl yaratish (integration)
+- `test_export_task_with_no_records` - Ma'lumot yo'q bo'lsa xatolik
+- `test_export_task_applies_date_filter` - Sana filtrlari to'g'ri qo'llanadi
+
+**Export Features**:
+- Celery task orqali asinxron export
+- Maksimal 50,000 yozuv
+- Excel formatting (bold headers, ranglar, auto-width)
+- Task status tracking va file URL
+
+---
+
+## Eslatmalar
+
+1. **Valyuta**: Barcha summalar so'm (butun sonlar) formatida.
+2. **Umumiy Tariflar va Chegirmalar**: Agar `branch` `null` bo'lsa, bu umumiy (barcha filiallar uchun).
+3. **Kategoriyalar**: 28 ta default global kategoriya mavjud. Har bir filial o'z kategoriyalarini yaratishi mumkin.
+4. **Avtomatik Branch**: 
+   - Obyekt yaratishda `branch` fieldini ko'rsatmasangiz, avtomatik requestdan olinadi
+   - `X-Branch-Id` header, JWT token, yoki middleware orqali branch aniqlash
+   - Super admin uchun: `branch` berilmasa, global obyekt yaratiladi (branch=null)
+5. **Tranzaksiyalar**: 
+   - Har bir to'lov avtomatik tranzaksiya yaratadi va kassa balansini yangilaydi
+   - `category` field orqali kategoriyaga bog'lanadi
+   - Kategoriya turi va tranzaksiya turi mos kelishi kerak
+   - **Auto-Approval**: Branch Admin har doim avtomatik, boshqalar permission-based
+6. **O'quvchi Balansi**: 
+   - Har bir to'lov o'quvchi balansini avtomatik yangilaydi
+   - `StudentProfile` yaratilganda `StudentBalance` avtomatik yaratiladi (signal orqali)
+   - **Thread-Safe**: select_for_update() lock bilan himoyalangan
+7. **Chegirmalar**: Chegirmalar foiz yoki aniq summa bo'lishi mumkin. Sana cheklovlari ham mavjud.
+8. **Pagination**: Barcha list endpointlar pagination qo'llab-quvvatlaydi (default: 20, max: 100)
+9. **Filtering, Search, Ordering**: Barcha list endpointlar filtering, search va ordering qo'llab-quvvatlaydi
 
 ### 1. Kassa yaratish va to'lov qilish
 

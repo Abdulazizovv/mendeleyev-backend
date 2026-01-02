@@ -420,17 +420,32 @@ class StudentBalance(BaseModel):
         return f"{self.student_profile} - {self.balance} so'm"
     
     def add_amount(self, amount: int):
-        """Balansga summa qo'shish."""
-        self.balance += amount
-        self.save(update_fields=['balance', 'updated_at'])
+        """Balansga summa qo'shish (atomic operation)."""
+        from django.db.models import F
+        StudentBalance.objects.filter(id=self.id).update(
+            balance=F('balance') + amount,
+            updated_at=timezone.now()
+        )
+        self.refresh_from_db()
     
     def subtract_amount(self, amount: int):
-        """Balansdan summa ayirish."""
-        if self.balance < amount:
-            raise ValueError("Balans yetarli emas")
-        self.balance -= amount
-        self.save(update_fields=['balance', 'updated_at'])
-
+        """Balansdan summa ayirish (atomic operation with lock)."""
+        from django.db.models import F
+        from django.db import transaction
+        
+        with transaction.atomic():
+            # Row-level lock bilan balansni olish va tekshirish
+            balance = StudentBalance.objects.select_for_update().get(id=self.id)
+            if balance.balance < amount:
+                raise ValueError("Balans yetarli emas")
+            
+            # Atomic yangilash
+            StudentBalance.objects.filter(id=self.id).update(
+                balance=F('balance') - amount,
+                updated_at=timezone.now()
+            )
+        
+        self.refresh_from_db()
 
 class SubscriptionPlan(BaseModel):
     """Abonement tarifi.
@@ -603,10 +618,29 @@ class Discount(BaseModel):
             return f"{self.name} - {self.amount}% @ {branch_name}"
         return f"{self.name} - {self.amount:,} so'm @ {branch_name}"
     
-    def calculate_discount(self, base_amount: int) -> int:
-        """Chegirmani hisoblash."""
+    def calculate_discount(self, base_amount: int, transaction_branch=None) -> int:
+        """Chegirmani hisoblash.
+        
+        Args:
+            base_amount: Asosiy summa
+            transaction_branch: Tranzaksiya filiali (optional)
+            
+        Returns:
+            Chegirma summasi
+            
+        Note:
+            Agar transaction_branch berilgan bo'lsa, chegirma faqat:
+            - Global chegirma bo'lsa (branch=null)
+            - Yoki chegirma branch va transaction branch mos kelsa
+            qo'llaniladi.
+        """
         if not self.is_active:
             return 0
+        
+        # Branch validation - global yoki tegishli branchni tekshirish
+        if transaction_branch and self.branch:
+            if self.branch.id != transaction_branch.id:
+                return 0
         
         # Sana tekshiruvi
         now = timezone.now()

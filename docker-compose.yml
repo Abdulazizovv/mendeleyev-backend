@@ -51,6 +51,7 @@ services:
       - .env
     volumes:
       - .:/usr/src/app
+      - media_volume:/usr/src/app/media
     depends_on:
       - db
       - redis

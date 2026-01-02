@@ -44,5 +44,10 @@ urlpatterns = [
     
     # Statistics
     path('statistics/', views.FinanceStatisticsView.as_view(), name='statistics'),
+    
+    # Export
+    path('export/transactions/', views.ExportTransactionsView.as_view(), name='export-transactions'),
+    path('export/payments/', views.ExportPaymentsView.as_view(), name='export-payments'),
+    path('export/task-status/<str:task_id>/', views.ExportTaskStatusView.as_view(), name='export-task-status'),
 ]
 

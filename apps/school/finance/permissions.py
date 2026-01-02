@@ -17,6 +17,9 @@ class FinancePermissions:
     EXPORT_DATA = 'export_data'
     MANAGE_CATEGORIES = 'manage_categories'
     MANAGE_CASH_REGISTERS = 'manage_cash_registers'
+    # Auto-approve permissions
+    CAN_AUTO_APPROVE = 'can_auto_approve_transactions'
+    CAN_APPROVE_MANUALLY = 'can_approve_transactions'
 
 
 class CanManageFinance(BasePermission):
@@ -69,8 +72,8 @@ class CanManageFinance(BasePermission):
                     return True
             
             # Role orqali moliya ruxsatini tekshirish
-            if hasattr(membership, 'role_model') and membership.role_model:
-                permissions = membership.role_model.permissions or {}
+            if hasattr(membership, 'role_ref') and membership.role_ref:
+                permissions = membership.role_ref.permissions or {}
                 
                 # Read operatsiyalari uchun
                 if request.method in ['GET', 'HEAD', 'OPTIONS']:
@@ -121,8 +124,8 @@ class CanViewFinanceReports(BasePermission):
                 return True
             
             # Role orqali tekshirish
-            if membership.role_model:
-                permissions = membership.role_model.permissions or {}
+            if membership.role_ref:
+                permissions = membership.role_ref.permissions or {}
                 return permissions.get(FinancePermissions.VIEW_REPORTS, False)
         
         except BranchMembership.DoesNotExist:
@@ -160,8 +163,8 @@ class CanManageCategories(BasePermission):
                 return True
             
             # Role orqali tekshirish
-            if membership.role_model:
-                permissions = membership.role_model.permissions or {}
+            if membership.role_ref:
+                permissions = membership.role_ref.permissions or {}
                 return permissions.get(FinancePermissions.MANAGE_CATEGORIES, False)
         
         except BranchMembership.DoesNotExist:

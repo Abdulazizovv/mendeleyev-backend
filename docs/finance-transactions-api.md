@@ -1,15 +1,17 @@
-# Moliya Tranzaksiyalari API (Yangilangan)
+# Moliya Tranzaksiyalari API (2025 Yangilangan)
 
-## O'zgarishlar
+## So'nggi O'zgarishlar
 
-### ✅ 1-BOSQICH Integratsiyasi
+### ✅ 2025 Yangilanishlari
 
 **Qo'shilgan:**
 - ✅ `Transaction.category` - Dinamik kategoriya (ForeignKey → FinanceCategory)
-- ✅ Category filtri - `?category=uuid`
-- ✅ Category validatsiyasi - Type mos kelishi, faol bo'lishi kerak
-- ✅ Super admin support - Barcha filiallarga kirish
-- ✅ Role-based permissions - Granular ruxsatlar
+- ✅ Django-filters - Kuchli filtrlash qobiliyatlari
+- ✅ Excel Export - Celery orqali asinxron export
+- ✅ Auto-approval - Permission-based avtomatik tasdiqlash
+- ✅ Race condition fixes - F() expressions va select_for_update()
+- ✅ Branch isolation - Har bir filial o'z ma'lumotlarigagina kiradi
+- ✅ Discount branch validation - Chegirmalar faqat o'z filialida yoki globalda ishlaydi
 
 **Deprecated:**
 - ⚠️ `income_category` - Eski hardcoded (hali mavjud, lekin DEPRECATED)
@@ -23,14 +25,19 @@
 
 **GET** `/api/v1/finance/transactions/`
 
-**Parametrlar:**
+**Parametrlar (django-filter):**
 - `branch_id` - UUID (super admin uchun ixtiyoriy)
-- `transaction_type` - income/expense/transfer/payment/salary/refund
-- `status` - pending/completed/cancelled/failed
+- `transaction_type` - income/expense/transfer/payment/salary/refund (ko'plab qiymatlar: `?transaction_type=income&transaction_type=expense`)
+- `status` - pending/approved/rejected/cancelled (ko'plab qiymatlar)
 - `cash_register` - UUID
-- `category` - UUID (yangi!)
-- `search` - description, reference_number
-- `ordering` - amount, transaction_date, created_at
+- `category` - UUID (ko'plab qiymatlar)
+- `student_profile` - UUID
+- `amount_min` - int (minimal summa)
+- `amount_max` - int (maksimal summa)
+- `date_from` - YYYY-MM-DD (boshlanish sanasi)
+- `date_to` - YYYY-MM-DD (tugash sanasi)
+- `search` - description, reference_number, student ismi bo'yicha qidiruv
+- `ordering` - amount, -amount, transaction_date, -transaction_date, created_at, -created_at
 
 **Javob:**
 ```json
@@ -148,14 +155,18 @@
 }
 ```
 
-**⚠️ Status Xatti-harakati:**
+**⚠️ Status Xatti-harakati (Permission-based):**
 
-| User Role | Yaratilgan Status | Kassa Balansi | Izoh |
+| Permission | Yaratilgan Status | Kassa Balansi | Izoh |
 |-----------|-------------------|---------------|------|
-| **Branch Admin** | `COMPLETED` | ✅ Darhol yangilanadi | Avtomatik tasdiqlanadi |
-| **Super Admin** | `PENDING` | ⏳ Kutmoqda | Manual tasdiq talab qilinadi |
-| **Accountant** | `PENDING` | ⏳ Kutmoqda | Manual tasdiq talab qilinadi |
-| **Cashier** | `PENDING` | ⏳ Kutmoqda | Manual tasdiq talab qilinadi |
+| **CAN_AUTO_APPROVE** | `APPROVED` | ✅ Darhol yangilanadi | Avtomatik tasdiqlanadi |
+| **CAN_APPROVE_MANUALLY** | `PENDING` | ⏳ Kutmoqda | Manual tasdiq talab qilinadi |
+| **Boshqalar** | `PENDING` | ⏳ Kutmoqda | Manual tasdiq talab qilinadi |
+
+**Auto-approval Logikasi:**
+- User `can_auto_approve_transactions` permission ga ega bo'lsa → transaction darhol `APPROVED` holatida yaratiladi
+- Aks holda → `PENDING` holatida yaratiladi va manual tasdiq kutiladi
+- Kassa balansi faqat `APPROVED` holatda yangilanadi
 
 **Ruxsatlar:**
 - `create_transactions` yoki `manage_finance` permission
@@ -451,10 +462,114 @@ curl -X GET "http://localhost:8000/api/v1/finance/transactions/?category=<catego
 
 ---
 
-## Keyingi Yangilanishlar (2-BOSQICH)
+## Excel Export (Yangi!)
 
-- [ ] Tranzaksiya hisobotlari (oylik, yillik)
-- [ ] Excel/CSV export
+### Export Tranzaksiyalar
+
+**POST** `/api/v1/finance/export/transactions/`
+
+Tranzaksiyalarni Excel fayliga export qilish. Celery task orqali asinxron bajariladi.
+
+**Request Body:**
+```json
+{
+  "transaction_type": "income",
+  "status": "approved",
+  "date_from": "2025-01-01",
+  "date_to": "2025-12-31",
+  "cash_register": "uuid",
+  "category": "uuid",
+  "student_profile": "uuid"
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Export task boshlandi",
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "PENDING"
+}
+```
+
+**Eslatma:**
+- Maksimal 50,000 ta yozuvni export qiladi
+- Filtr parametrlari ixtiyoriy
+- Excel fayl `media/exports/finance/` papkasida saqlanadi
+- Fayl nomi: `transactions_YYYYMMDD_HHMMSS.xlsx`
+
+---
+
+### Export To'lovlar
+
+**POST** `/api/v1/finance/export/payments/`
+
+To'lovlarni Excel fayliga export qilish.
+
+**Request Body:**
+```json
+{
+  "student_profile": "uuid",
+  "date_from": "2025-01-01",
+  "date_to": "2025-12-31",
+  "period": "2025-12"
+}
+```
+
+**Response:** (Yuqoridagidek)
+
+---
+
+### Task Statusini Tekshirish
+
+**GET** `/api/v1/finance/export/task-status/{task_id}/`
+
+Export task natijasini olish.
+
+**Response (PENDING):**
+```json
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "PENDING",
+  "message": "Task kutilmoqda"
+}
+```
+
+**Response (SUCCESS):**
+```json
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "SUCCESS",
+  "message": "Export muvaffaqiyatli",
+  "file_url": "/media/exports/finance/transactions_20250102_143022.xlsx",
+  "filename": "transactions_20250102_143022.xlsx",
+  "records_count": 1523
+}
+```
+
+**Response (FAILURE):**
+```json
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "FAILURE",
+  "message": "Task xatolik",
+  "error": "Database connection error"
+}
+```
+
+**Excel Fayl Tuzilishi:**
+- Avtomatik formatlangan (header bold, ranglar)
+- Summa formati: #,##0 so'm
+- Sana formati: DD.MM.YYYY HH:MM
+- Auto-width ustunlar
+
+---
+
+## Keyingi Yangilanishlar
+
+- [x] Tranzaksiya hisobotlari (oylik, yillik)
+- [x] Excel export (Celery bilan)
+- [ ] CSV export
 - [ ] Bulk import
 - [ ] Tranzaksiya tags (qo'shimcha tashkilot uchun)
 - [ ] Recurring transactions (qayta-qayta to'lovlar)

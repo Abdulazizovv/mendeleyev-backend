@@ -2,6 +2,7 @@
 Moliya tizimi serializers.
 """
 from rest_framework import serializers
+from django.db import transaction
 from django.utils import timezone
 from .models import (
     CashRegister,
@@ -308,8 +309,9 @@ class TransactionCreateSerializer(serializers.ModelSerializer):
         
         return attrs
     
+    @transaction.atomic
     def create(self, validated_data):
-        """Tranzaksiya yaratish."""
+        """Tranzaksiya yaratish (atomic operation)."""
         # Auto-approve flag ni olish va o'chirish (model fieldda yo'q)
         auto_approve = validated_data.pop('auto_approve', False)
         
@@ -324,6 +326,12 @@ class TransactionCreateSerializer(serializers.ModelSerializer):
         # Agar transaction_date ko'rsatilmagan bo'lsa, hozirgi vaqtni qo'yamiz
         if 'transaction_date' not in validated_data:
             validated_data['transaction_date'] = timezone.now()
+        
+        # Cash register ni lock qilish
+        cash_register = validated_data.get('cash_register')
+        if cash_register:
+            from .models import CashRegister
+            CashRegister.objects.select_for_update().filter(id=cash_register.id).first()
         
         # Transaction yaratish - super().create() Transaction(**validated_data).save() ni chaqiradi
         # Bu Transaction.save() metodini ishga tushiradi va kassa balansini yangilaydi
@@ -667,10 +675,10 @@ class PaymentCreateSerializer(serializers.ModelSerializer):
                     "discount": "Chegirma bu filialga tegishli emas"
                 })
         
-        # Chegirmani hisoblash
+        # Chegirmani hisoblash (branch validation bilan)
         discount_amount = 0
         if discount and discount.is_valid():
-            discount_amount = discount.calculate_discount(base_amount)
+            discount_amount = discount.calculate_discount(base_amount, transaction_branch=branch)
         
         # Final amount
         final_amount = base_amount - discount_amount
@@ -684,38 +692,45 @@ class PaymentCreateSerializer(serializers.ModelSerializer):
         
         return attrs
     
+    @transaction.atomic
     def create(self, validated_data):
-        """To'lov yaratish."""
+        """To'lov yaratish (atomic operation)."""
         cash_register = validated_data.pop('cash_register')
         student_profile: StudentProfile = validated_data.get('student_profile')
         branch = validated_data.get('branch')
         final_amount = validated_data.get('final_amount')
         
+        # Cash register va student balance ni lock qilish (race condition oldini olish)
+        from .models import CashRegister, StudentBalance
+        locked_cash_register = CashRegister.objects.select_for_update().get(id=cash_register.id)
+        student_balance, _ = StudentBalance.objects.select_for_update().get_or_create(
+            student_profile=student_profile
+        )
+        
         # Tranzaksiya yaratish
-        transaction = Transaction.objects.create(
+        # MUHIM: Transaction.save() avtomatik kassa balansini yangilaydi (status=COMPLETED bo'lganda)
+        # Shuning uchun qo'lda update_balance() chaqirish kerak emas
+        student_name = student_profile.user_branch.user.get_full_name()
+        class_name = student_profile.current_class.name if student_profile.current_class else "Sinf belgilanmagan"
+        
+        transaction_obj = Transaction.objects.create(
             branch=branch,
-            cash_register=cash_register,
+            cash_register=locked_cash_register,
             transaction_type=TransactionType.PAYMENT,
             status=TransactionStatus.COMPLETED,
             amount=final_amount,
             payment_method=validated_data.get('payment_method', PaymentMethod.CASH),
-            description=f"O'quvchi to'lovi: {student_profile.user_branch.user.get_full_name()} {student_profile.current_class.name}",
+            description=f"O'quvchi to'lovi: {student_name} {class_name}",
             student_profile=student_profile,
             transaction_date=validated_data.get('payment_date', timezone.now()),
         )
-        
-        # MUHIM: Kassa balansini yangilash
-        # Transaction.save() metodi objects.create() da ishlamasligi mumkin
-        cash_register.update_balance(final_amount, TransactionType.PAYMENT)
+        # Kassa balansi Transaction.save() da avtomatik yangilandi
         
         # To'lov yaratish
-        validated_data['transaction'] = transaction
+        validated_data['transaction'] = transaction_obj
         payment = super().create(validated_data)
         
-        # O'quvchi balansini yangilash
-        student_balance, _ = StudentBalance.objects.get_or_create(
-            student_profile=student_profile
-        )
+        # O'quvchi balansini yangilash (atomic F() expression bilan)
         student_balance.add_amount(final_amount)
         
         return payment

@@ -1,13 +1,25 @@
-# O'quvchi To'lovlari API - To'liq Qo'llanma
+# O'quvchi To'lovlari API - To'liq Qo'llanma (2025 Yangilangan)
 
 ## 📚 Mundarija
 
 1. [Tizim Arxitekturasi](#tizim-arxitekturasi)
 2. [API Endpointlar](#api-endpointlar)
-3. [Modellar](#modellar)
-4. [O'quvchi To'lovi Jarayoni](#oqcuvchi-tolovi-jarayoni)
-5. [Frontend Integratsiyasi](#frontend-integratsiyasi)
-6. [Misollar](#misollar)
+3. [Yangi Xususiyatlar](#yangi-xususiyatlar)
+4. [Excel Export](#excel-export)
+5. [Modellar](#modellar)
+6. [O'quvchi To'lovi Jarayoni](#oqcuvchi-tolovi-jarayoni)
+7. [Frontend Integratsiyasi](#frontend-integratsiyasi)
+8. [Misollar](#misollar)
+
+## 🆕 2025 Yangilanishlari
+
+**Qo'shilgan:**
+- ✅ Django-filters - Kuchli filtrlash qobiliyatlari (amount_min/max, debt_ranges, has_debt, va boshqalar)
+- ✅ Excel Export - Celery orqali asinxron to'lovlar exporti
+- ✅ Race condition fixes - Concurrent to'lovlarda atomicity ta'minlash
+- ✅ Branch isolation - Har bir filial o'z ma'lumotlarigagina kiradi
+- ✅ Discount branch validation - Chegirmalar faqat o'z filialida yoki globalda ishlaydi
+- ✅ select_for_update() - CashRegister va StudentBalance concurrent yangilanishlarda lock
 
 ---
 
@@ -119,11 +131,16 @@ Bitta o'quvchi balansi
 #### GET /subscription-plans/
 Abonement tariflari ro'yxati
 
-**Query Parametrlar:**
+**Query Parametrlar (django-filter):**
 - `branch_id` (UUID) - Filial ID
 - `is_active` (boolean) - Faqat faol tariflar
+- `grade_level_min` (int) - Minimal sinf darajasi
+- `grade_level_max` (int) - Maksimal sinf darajasi
+- `period` (string) - monthly/quarterly/annual
+- `price_min` (int) - Minimal narx
+- `price_max` (int) - Maksimal narx
 - `search` (string) - Tarif nomi yoki tavsif
-- `ordering` - `price`, `-price`, `grade_level_min`
+- `ordering` - `price`, `-price`, `grade_level_min`, `-grade_level_min`
 
 **Response:**
 ```json
@@ -236,13 +253,22 @@ Chegirmalar ro'yxati
 #### GET /payments/
 To'lovlar ro'yxati
 
-**Query Parametrlar:**
+**Query Parametrlar (django-filter):**
 - `branch_id` (UUID) - Filial ID
 - `student_profile` (UUID) - O'quvchi ID
-- `period_start` (date) - Sanadan (YYYY-MM-DD)
-- `period_end` (date) - Sanagacha (YYYY-MM-DD)
-- `search` (string) - Qidirish
-- `ordering` - `payment_date`, `-payment_date`, `final_amount`
+- `subscription_plan` (UUID) - Abonement tarif ID
+- `period` (string) - Davr (masalan: "2025-01" YYYY-MM formatida)
+- `base_amount_min` (int) - Minimal bazaviy summa
+- `base_amount_max` (int) - Maksimal bazaviy summa
+- `final_amount_min` (int) - Minimal yakuniy summa
+- `final_amount_max` (int) - Maksimal yakuniy summa
+- `discount_amount_min` (int) - Minimal chegirma summasi
+- `discount_amount_max` (int) - Maksimal chegirma summasi
+- `payment_method` (string) - cash/card/bank_transfer (ko'plab qiymatlar mumkin)
+- `date_from` (date) - To'lov sanasidan (YYYY-MM-DD)
+- `date_to` (date) - To'lov sanasigacha (YYYY-MM-DD)
+- `search` (string) - Qidirish (student ismi, notes)
+- `ordering` - `payment_date`, `-payment_date`, `final_amount`, `-final_amount`
 
 **Response:**
 ```json
@@ -986,6 +1012,67 @@ const getMonthlyStats = async (year, month) => {
 
 ---
 
+## 📊 Excel Export (Yangi!)
+
+### Export To'lovlar
+
+**POST** `/api/v1/finance/export/payments/`
+
+To'lovlarni Excel fayliga export qilish. Celery task orqali asinxron bajariladi.
+
+**Request Body:**
+```json
+{
+  "student_profile": "uuid",
+  "date_from": "2025-01-01",
+  "date_to": "2025-12-31",
+  "period": "2025-12"
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Export task boshlandi",
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "PENDING"
+}
+```
+
+**Eslatma:**
+- Maksimal 50,000 ta yozuvni export qiladi
+- Filtr parametrlari ixtiyoriy
+- Excel fayl `media/exports/finance/` papkasida saqlanadi
+- Fayl nomi: `payments_YYYYMMDD_HHMMSS.xlsx`
+
+---
+
+### Task Statusini Tekshirish
+
+**GET** `/api/v1/finance/export/task-status/{task_id}/`
+
+Export task natijasini olish.
+
+**Response (SUCCESS):**
+```json
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "SUCCESS",
+  "message": "Export muvaffaqiyatli",
+  "file_url": "/media/exports/finance/payments_20250102_143022.xlsx",
+  "filename": "payments_20250102_143022.xlsx",
+  "records_count": 523
+}
+```
+
+**Excel Fayl Tuzilishi:**
+- O'quvchi ismi, Tarif, Bazaviy summa, Chegirma, Yakuniy summa, Sanalar
+- Avtomatik formatlangan (header bold, ranglar)
+- Summa formati: #,##0 so'm
+- Auto-width ustunlar
+
+---
+
 ## 🎓 Best Practices
 
 ### 1. Balansni Real-time Ko'rsatish
@@ -1040,6 +1127,45 @@ const confirmPayment = (amount) => {
 if (confirmPayment(finalAmount)) {
   await createPayment(payment);
 }
+```
+
+### 5. Excel Export (Yangi!)
+
+```javascript
+// Export boshlash
+const startExport = async () => {
+  const response = await fetch('/api/v1/finance/export/payments/', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'X-Branch-Id': branchId,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      date_from: '2025-01-01',
+      date_to: '2025-12-31'
+    })
+  });
+  
+  const data = await response.json();
+  checkTaskStatus(data.task_id);
+};
+
+// Task statusini tekshirish
+const checkTaskStatus = async (taskId) => {
+  const response = await fetch(`/api/v1/finance/export/task-status/${taskId}/`);
+  const data = await response.json();
+  
+  if (data.status === 'SUCCESS') {
+    // Faylni yuklab olish
+    window.location.href = data.file_url;
+  } else if (data.status === 'PENDING' || data.status === 'STARTED') {
+    // 2 soniyadan keyin qayta tekshirish
+    setTimeout(() => checkTaskStatus(taskId), 2000);
+  } else {
+    showError('Export xatolik: ' + data.error);
+  }
+};
 ```
 
 ---

@@ -41,7 +41,16 @@ from .serializers import (
     FinanceCategorySerializer,
     FinanceCategoryListSerializer,
 )
-from .permissions import CanManageFinance
+from .permissions import CanManageFinance, CanViewFinanceReports, CanManageCategories
+from .filters import (
+    TransactionFilter,
+    PaymentFilter,
+    StudentSubscriptionFilter,
+    FinanceCategoryFilter,
+    DiscountFilter,
+    SubscriptionPlanFilter,
+    CashRegisterFilter,
+)
 from apps.branch.models import Branch, BranchMembership, BranchRole
 from auth.profiles.models import StudentProfile
 
@@ -49,59 +58,165 @@ from auth.profiles.models import StudentProfile
 class BaseFinanceView:
     """Asosiy moliya view mixin."""
     
-    def _get_branch_id(self):
+    def _get_branch_id(self, allow_body=False):
         """
         Branch ID ni olish.
         
-        Middleware request.branch_id o'rnatadi.
-        Fallback sifatida manual extraction.
+        MUHIM: Agar user bir nechta filialga a'zo bo'lsa, frontend MAJBURIY
+        ravishda branch_id yuborishi kerak (header, query param yoki body orqali).
+        
+        Prioritet tartibi:
+        1. Query parameter: ?branch_id=... (GET uchun)
+        2. HTTP Header: X-Branch-Id
+        3. Request body: {"branch_id": "..."} (POST/PUT uchun, agar allow_body=True)
+        4. JWT token: br yoki branch_id claim
+        5. Middleware: request.branch_id
+        6. Fallback: Bitta membership bo'lsa avtomatik
+        
+        Returns:
+            str: Branch UUID yoki None
         """
-        # Middleware dan
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        user_id = self.request.user.id if self.request.user else None
+        
+        # Debug: Request ma'lumotlarini log qilish
+        logger.info(f"""
+╔══════════════════════════════════════════════════════════╗
+║ 🔍 _get_branch_id() DEBUG                                 ║
+╠══════════════════════════════════════════════════════════╣
+║ User ID: {user_id}
+║ Method: {self.request.method}
+║ Path: {self.request.path}
+║ Headers (X-Branch-Id): {self.request.META.get('HTTP_X_BRANCH_ID')}
+║ Query params: {dict(self.request.query_params) if hasattr(self.request, 'query_params') else dict(self.request.GET)}
+║ JWT auth type: {type(self.request.auth)}
+║ JWT auth value: {self.request.auth if isinstance(self.request.auth, dict) else 'Not a dict'}
+║ Allow body: {allow_body}
+╚══════════════════════════════════════════════════════════╝
+        """)
+        
+        # 1. Query parameter (eng yuqori prioritet GET uchun)
+        if self.request.method == 'GET':
+            qp_branch_id = None
+            if hasattr(self.request, 'query_params'):
+                qp_branch_id = self.request.query_params.get("branch_id")
+            else:
+                qp_branch_id = self.request.GET.get("branch_id")
+            
+            if qp_branch_id:
+                try:
+                    branch_id_uuid = str(UUID(str(qp_branch_id)))
+                    # Access tekshirish
+                    has_access = BranchMembership.objects.filter(
+                        user=self.request.user,
+                        branch_id=branch_id_uuid,
+                        deleted_at__isnull=True
+                    ).exists()
+                    if has_access:
+                        logger.info(f"✅ Branch ID from QUERY PARAM: {branch_id_uuid}")
+                        return branch_id_uuid
+                    else:
+                        logger.warning(f"⛔ Query param branch_id={branch_id_uuid} access denied")
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"⚠️ Invalid query param branch_id: {qp_branch_id}, error: {e}")
+        
+        # 2. HTTP Header
+        header_branch_id = self.request.META.get("HTTP_X_BRANCH_ID")
+        if header_branch_id:
+            try:
+                branch_id_uuid = str(UUID(str(header_branch_id)))
+                # Access tekshirish
+                has_access = BranchMembership.objects.filter(
+                    user=self.request.user,
+                    branch_id=branch_id_uuid,
+                    deleted_at__isnull=True
+                ).exists()
+                if has_access:
+                    logger.info(f"✅ Branch ID from HEADER: {branch_id_uuid}")
+                    return branch_id_uuid
+                else:
+                    logger.warning(f"⛔ Header branch_id={branch_id_uuid} access denied")
+            except (ValueError, TypeError) as e:
+                logger.warning(f"⚠️ Invalid header branch_id: {header_branch_id}, error: {e}")
+        
+        # 3. Request body (POST/PUT uchun, agar allow_body=True)
+        if allow_body and hasattr(self.request, 'data'):
+            body_branch_id = self.request.data.get('branch_id')
+            if body_branch_id:
+                try:
+                    branch_id_uuid = str(UUID(str(body_branch_id)))
+                    # Access tekshirish
+                    has_access = BranchMembership.objects.filter(
+                        user=self.request.user,
+                        branch_id=branch_id_uuid,
+                        deleted_at__isnull=True
+                    ).exists()
+                    if has_access:
+                        logger.info(f"✅ Branch ID from BODY: {branch_id_uuid}")
+                        return branch_id_uuid
+                    else:
+                        logger.warning(f"⛔ Body branch_id={branch_id_uuid} access denied")
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"⚠️ Invalid body branch_id: {body_branch_id}, error: {e}")
+        
+        # 4. JWT token claim
+        if hasattr(self.request, "auth") and self.request.auth:
+            logger.info(f"JWT auth type: {type(self.request.auth)}, value: {self.request.auth}")
+            
+            # SimpleJWT AccessToken object
+            if hasattr(self.request.auth, 'payload'):
+                payload = self.request.auth.payload
+                logger.info(f"JWT payload: {payload}")
+                br_claim = payload.get("br") or payload.get("branch_id")
+                if br_claim:
+                    try:
+                        branch_id_uuid = str(UUID(str(br_claim)))
+                        logger.info(f"✅ Branch ID from JWT (SimpleJWT): {branch_id_uuid}")
+                        return branch_id_uuid
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"⚠️ Invalid JWT branch_id: {br_claim}, error: {e}")
+            
+            # Dict (legacy support)
+            elif isinstance(self.request.auth, dict):
+                br_claim = self.request.auth.get("br") or self.request.auth.get("branch_id")
+                if br_claim:
+                    try:
+                        branch_id_uuid = str(UUID(str(br_claim)))
+                        logger.info(f"✅ Branch ID from JWT (dict): {branch_id_uuid}")
+                        return branch_id_uuid
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"⚠️ Invalid JWT branch_id: {br_claim}, error: {e}")
+        
+        # 5. Middleware
         if hasattr(self.request, 'branch_id') and self.request.branch_id:
+            logger.info(f"✅ Branch ID from MIDDLEWARE: {self.request.branch_id}")
             return self.request.branch_id
         
-        # Fallback: manual extraction
-        # JWT claim
-        if hasattr(self.request, "auth") and isinstance(self.request.auth, dict):
-            br_claim = self.request.auth.get("br") or self.request.auth.get("branch_id")
-            if br_claim:
-                try:
-                    return str(UUID(str(br_claim)))
-                except:
-                    pass
+        # 6. FALLBACK: Bitta membership bo'lsa
+        logger.info("🔄 Fallback: Checking user memberships...")
+        memberships = BranchMembership.objects.filter(
+            user=self.request.user,
+            deleted_at__isnull=True
+        ).select_related('branch')
         
-        # Header
-        branch_id = self.request.META.get("HTTP_X_BRANCH_ID")
-        if branch_id:
-            try:
-                return str(UUID(str(branch_id)))
-            except:
-                pass
+        membership_count = memberships.count()
+        logger.info(f"📊 User has {membership_count} membership(s)")
         
-        # Query param
-        if hasattr(self.request, 'query_params'):
-            branch_id = self.request.query_params.get("branch_id")
+        if membership_count == 1:
+            membership = memberships.first()
+            branch_id = str(membership.branch_id)
+            logger.info(f"✅ Branch ID from SINGLE MEMBERSHIP: {branch_id} (branch: {membership.branch.name})")
+            return branch_id
+        elif membership_count > 1:
+            logger.warning(f"⚠️ User has {membership_count} memberships - explicit branch_id REQUIRED!")
+            for m in memberships:
+                logger.info(f"   - {m.branch.name} ({m.branch_id}) - {m.role}")
+            return None
         else:
-            branch_id = self.request.GET.get("branch_id")
-        
-        if branch_id:
-            try:
-                return str(UUID(str(branch_id)))
-            except:
-                pass
-        
-        # User membership dan olish
-        try:
-            membership = BranchMembership.objects.filter(
-                user=self.request.user,
-                deleted_at__isnull=True
-            ).first()
-            if membership and membership.branch_id:
-                return str(membership.branch_id)
-        except Exception:
-            pass
-        
-        return None
+            logger.error(f"❌ User has NO memberships!")
+            return None
     
     def _is_super_admin(self):
         """Super admin ekanligini tekshirish."""
@@ -122,13 +237,56 @@ class BaseFinanceView:
         except Exception:
             return False
     
+    def _get_user_membership(self, branch_id=None):
+        """User ning BranchMembership ni olish.
+        
+        Args:
+            branch_id: Aniq branch uchun membership. Agar berilmasa, _get_branch_id() dan olinadi.
+        
+        Returns:
+            BranchMembership yoki None
+        """
+        try:
+            # Agar branch_id berilmagan bo'lsa, _get_branch_id() dan olish
+            if branch_id is None:
+                branch_id = self._get_branch_id()
+            
+            # Agar branch_id topilmasa, birinchi membership
+            if not branch_id:
+                return BranchMembership.objects.filter(
+                    user=self.request.user,
+                    deleted_at__isnull=True
+                ).first()
+            
+            # Aniq branch uchun membership
+            return BranchMembership.objects.filter(
+                user=self.request.user,
+                branch_id=branch_id,
+                deleted_at__isnull=True
+            ).first()
+        except Exception:
+            return None
+    
     def _should_auto_approve(self):
-        """Tranzaksiya avtomatik tasdiqlanishi kerakligini aniqlash."""
-        # Super admin - manual tasdiq talab qilinadi
+        """Tranzaksiya avtomatik tasdiqlanishi kerakmi?
+        
+        Logika:
+        - Branch Admin: har doim auto-approve
+        - Super Admin: permission-based (CAN_AUTO_APPROVE)
+        - Accountant/boshqa rollar: permission-based (CAN_AUTO_APPROVE)
+        """
+        from .permissions import FinancePermissions
+        
+        # Super admin tekshiruvi
         if self._is_super_admin():
+            # Super admin uchun permission-based
+            membership = self._get_user_membership()
+            if membership and membership.role_ref:
+                permissions = membership.role_ref.permissions or {}
+                return permissions.get(FinancePermissions.CAN_AUTO_APPROVE, False)
             return False
         
-        # Branch admin - avtomatik tasdiqlanadi
+        # Branch admin - har doim avtomatik tasdiqlanadi
         try:
             membership = BranchMembership.objects.filter(
                 user=self.request.user,
@@ -136,10 +294,15 @@ class BaseFinanceView:
             ).first()
             if membership and membership.role == BranchRole.BRANCH_ADMIN:
                 return True
+            
+            # Boshqa rollar uchun permission-based
+            if membership and membership.role_ref:
+                permissions = membership.role_ref.permissions or {}
+                return permissions.get(FinancePermissions.CAN_AUTO_APPROVE, False)
         except Exception:
             pass
         
-        # Boshqa rollar - manual tasdiq
+        # Default: manual tasdiq
         return False
 
 
@@ -150,8 +313,9 @@ class FinanceCategoryListCreateView(BaseFinanceView, generics.ListCreateAPIView)
     """Kategoriyalar ro'yxati va yaratish."""
     
     permission_classes = [IsAuthenticated, CanManageFinance]
+    serializer_class = FinanceCategorySerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['type', 'is_active', 'parent']
+    filterset_class = FinanceCategoryFilter
     search_fields = ['name', 'code', 'description']
     ordering_fields = ['name', 'code', 'created_at']
     ordering = ['type', 'name']
@@ -240,6 +404,7 @@ class CashRegisterListView(generics.ListCreateAPIView, BaseFinanceView):
     permission_classes = [IsAuthenticated, CanManageFinance]
     serializer_class = CashRegisterSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_class = CashRegisterFilter
     search_fields = ['name', 'description', 'location']
     ordering_fields = ['name', 'balance', 'created_at']
     ordering = ['-created_at']
@@ -289,14 +454,22 @@ class CashRegisterDetailView(generics.RetrieveUpdateDestroyAPIView, BaseFinanceV
     
     def get_queryset(self):
         """Kassa queryset."""
-        branch_id = self._get_branch_id()
-        if not branch_id:
-            return CashRegister.objects.none()
+        import logging
+        logger = logging.getLogger(__name__)
         
-        return CashRegister.objects.filter(
-            branch_id=branch_id,
+        queryset = CashRegister.objects.filter(
             deleted_at__isnull=True
         ).select_related('branch')
+        
+        # Super admin barcha kassalarni ko'radi
+        if not self._is_super_admin():
+            branch_id = self._get_branch_id()
+            logger.warning(f"🔍 CashRegisterDetailView: user={self.request.user.id}, branch_id={branch_id}, query_params={dict(self.request.query_params) if hasattr(self.request, 'query_params') else {}}")
+            if not branch_id:
+                return CashRegister.objects.none()
+            queryset = queryset.filter(branch_id=branch_id)
+        
+        return queryset
 
 
 # ==================== Transaction Views ====================
@@ -306,8 +479,9 @@ class TransactionListView(generics.ListCreateAPIView, BaseFinanceView):
     permission_classes = [IsAuthenticated, CanManageFinance]
     serializer_class = TransactionSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    search_fields = ['description', 'reference_number']
-    ordering_fields = ['amount', 'transaction_date', 'created_at']
+    filterset_class = TransactionFilter
+    search_fields = ['description', 'reference_number', 'student_profile__personal_number']
+    ordering_fields = ['amount', 'transaction_date', 'created_at', 'status']
     ordering = ['-transaction_date']
     
     @extend_schema(
@@ -340,6 +514,8 @@ class TransactionListView(generics.ListCreateAPIView, BaseFinanceView):
             'employee_membership',
             'employee_membership__user',
             'employee_membership__user__profile',
+        ).prefetch_related(
+            'payment',  # Transaction->Payment reverse relation (OneToOne)
         )
         
         # Super admin barcha tranzaksiyalarni ko'radi
@@ -351,57 +527,6 @@ class TransactionListView(generics.ListCreateAPIView, BaseFinanceView):
         
         # Soft delete filtri
         queryset = queryset.filter(deleted_at__isnull=True)
-        
-        # Filterlar
-        transaction_type = self.request.query_params.get('transaction_type')
-        if transaction_type:
-            queryset = queryset.filter(transaction_type=transaction_type)
-        
-        status_filter = self.request.query_params.get('status')
-        if status_filter:
-            queryset = queryset.filter(status=status_filter)
-        
-        cash_register_id = self.request.query_params.get('cash_register')
-        if cash_register_id:
-            queryset = queryset.filter(cash_register_id=cash_register_id)
-        
-        category_id = self.request.query_params.get('category')
-        if category_id:
-            queryset = queryset.filter(category_id=category_id)
-        
-        # Student filter
-        student_profile_id = self.request.query_params.get('student_profile')
-        if student_profile_id:
-            queryset = queryset.filter(student_profile_id=student_profile_id)
-        
-        # Employee filter
-        employee_membership_id = self.request.query_params.get('employee_membership')
-        if employee_membership_id:
-            queryset = queryset.filter(employee_membership_id=employee_membership_id)
-        
-        # Payment method filter
-        payment_method = self.request.query_params.get('payment_method')
-        if payment_method:
-            queryset = queryset.filter(payment_method=payment_method)
-        
-        # Date range filter
-        date_from = self.request.query_params.get('date_from')
-        if date_from:
-            from datetime import datetime
-            try:
-                date_from_obj = datetime.strptime(date_from, '%Y-%m-%d')
-                queryset = queryset.filter(transaction_date__gte=date_from_obj)
-            except ValueError:
-                pass
-        
-        date_to = self.request.query_params.get('date_to')
-        if date_to:
-            from datetime import datetime, timedelta
-            try:
-                date_to_obj = datetime.strptime(date_to, '%Y-%m-%d') + timedelta(days=1)
-                queryset = queryset.filter(transaction_date__lt=date_to_obj)
-            except ValueError:
-                pass
         
         return queryset
     
@@ -530,6 +655,7 @@ class SubscriptionPlanListView(generics.ListCreateAPIView, BaseFinanceView):
     permission_classes = [IsAuthenticated, CanManageFinance]
     serializer_class = SubscriptionPlanSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_class = SubscriptionPlanFilter
     search_fields = ['name', 'description']
     ordering_fields = ['price', 'grade_level_min', 'grade_level_max', 'created_at']
     ordering = ['grade_level_min']
@@ -604,6 +730,7 @@ class DiscountListView(generics.ListCreateAPIView, BaseFinanceView):
     permission_classes = [IsAuthenticated, CanManageFinance]
     serializer_class = DiscountSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_class = DiscountFilter
     search_fields = ['name', 'description']
     ordering_fields = ['amount', 'created_at']
     ordering = ['-created_at']
@@ -678,7 +805,8 @@ class PaymentListView(generics.ListCreateAPIView, BaseFinanceView):
     permission_classes = [IsAuthenticated, CanManageFinance]
     serializer_class = PaymentSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    search_fields = ['student_profile__personal_number', 'notes']
+    filterset_class = PaymentFilter
+    search_fields = ['student_profile__personal_number', 'notes', 'student_profile__user_branch__user__first_name']
     ordering_fields = ['final_amount', 'payment_date', 'created_at']
     ordering = ['-payment_date']
     
@@ -868,7 +996,7 @@ class StudentSubscriptionListView(BaseFinanceView, generics.ListCreateAPIView):
     
     permission_classes = [IsAuthenticated, CanManageFinance]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['student_profile', 'subscription_plan', 'is_active']
+    filterset_class = StudentSubscriptionFilter
     search_fields = ['student_profile__user_branch__user__first_name', 'student_profile__user_branch__user__last_name']
     ordering_fields = ['created_at', 'next_payment_date', 'total_debt']
     ordering = ['-created_at']
@@ -1048,3 +1176,226 @@ class PaymentDueSummaryView(BaseFinanceView, generics.GenericAPIView):
         
         serializer = self.get_serializer(results, many=True)
         return Response(serializer.data)
+
+
+# ==================== Export Views ====================
+
+class ExportTransactionsView(BaseFinanceView, generics.GenericAPIView):
+    """Tranzaksiyalarni Excel ga export qilish."""
+    
+    permission_classes = [IsAuthenticated, CanManageFinance]
+    
+    @extend_schema(
+        summary="Tranzaksiyalarni Excel ga export qilish",
+        description="Tranzaksiyalarni Excel fayliga export qilish. Celery task orqali asinxron bajariladi.",
+        parameters=[
+            OpenApiParameter('branch_id', OpenApiTypes.UUID, description='Filial ID'),
+            OpenApiParameter('transaction_type', OpenApiTypes.STR, description='Tranzaksiya turi'),
+            OpenApiParameter('status', OpenApiTypes.STR, description='Holat'),
+            OpenApiParameter('date_from', OpenApiTypes.DATE, description='Boshlanish sanasi'),
+            OpenApiParameter('date_to', OpenApiTypes.DATE, description='Tugash sanasi'),
+            OpenApiParameter('cash_register', OpenApiTypes.UUID, description='Kassa ID'),
+            OpenApiParameter('category', OpenApiTypes.UUID, description='Kategoriya ID'),
+            OpenApiParameter('student_profile', OpenApiTypes.UUID, description='O\'quvchi ID'),
+        ],
+    )
+    def post(self, request):
+        """Export taskni boshlash."""
+        from .tasks import export_transactions_to_excel
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # User membership va role tekshirish
+        user_membership = self._get_user_membership()
+        if not user_membership:
+            return Response(
+                {'error': 'Siz hech qaysi filialga tegishli emassiz'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        logger.info(f"Export request from user: {request.user.id}, role: {user_membership.role_ref.name if user_membership.role_ref else 'None'}, membership_branch: {user_membership.branch_id}")
+        logger.info(f"Request data: {request.data}")
+        logger.info(f"Request headers X-Branch-Id: {request.META.get('HTTP_X_BRANCH_ID')}")
+        
+        # Branch Admin: Faqat o'z branchidan export olsin
+        is_branch_admin = user_membership.role_ref and user_membership.role_ref.name == BranchRole.BRANCH_ADMIN
+        
+        if is_branch_admin:
+            # Branch Admin faqat o'z branchidan export olishi mumkin (JWT dan)
+            branch_id = str(user_membership.branch_id)
+            logger.info(f"Branch Admin detected. Using branch_id from membership: {branch_id}")
+            
+            # Agar header da boshqa branch_id berilgan bo'lsa, xatolik
+            header_branch_id = self._get_branch_id()
+            if header_branch_id and str(header_branch_id) != branch_id:
+                logger.warning(f"Branch Admin tried to access different branch. Header: {header_branch_id}, Own: {branch_id}")
+                return Response(
+                    {'error': 'Siz faqat o\'z filialingizdan export olishingiz mumkin'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        else:
+            # Super Admin va boshqalar: Header yoki body dan
+            branch_id = self._get_branch_id(allow_body=True)  # ✅ Body dan ham olsin
+            logger.info(f"Non-Branch Admin. Branch ID: {branch_id}")
+            
+            if not branch_id:
+                return Response(
+                    {'error': 'Branch ID talab qilinadi (X-Branch-Id header yoki branch_id body da)'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        logger.info(f"Final branch_id for export: {branch_id}")
+        
+        # Filterlarni olish
+        filters = {}
+        if request.data.get('transaction_type'):
+            filters['transaction_type'] = request.data.get('transaction_type')
+        if request.data.get('status'):
+            filters['status'] = request.data.get('status')
+        if request.data.get('date_from'):
+            filters['date_from'] = request.data.get('date_from')
+        if request.data.get('date_to'):
+            filters['date_to'] = request.data.get('date_to')
+        if request.data.get('cash_register'):
+            filters['cash_register'] = request.data.get('cash_register')
+        if request.data.get('category'):
+            filters['category'] = request.data.get('category')
+        if request.data.get('student_profile'):
+            filters['student_profile'] = request.data.get('student_profile')
+        
+        # Celery taskni boshlash
+        task = export_transactions_to_excel.delay(
+            branch_id=branch_id,
+            filters=filters,
+            user_id=str(request.user.id)
+        )
+        
+        return Response({
+            'message': 'Export task boshlandi',
+            'task_id': task.id,
+            'status': 'PENDING'
+        }, status=status.HTTP_202_ACCEPTED)
+
+
+class ExportPaymentsView(BaseFinanceView, generics.GenericAPIView):
+    """To'lovlarni Excel ga export qilish."""
+    
+    permission_classes = [IsAuthenticated, CanManageFinance]
+    
+    @extend_schema(
+        summary="To'lovlarni Excel ga export qilish",
+        description="To'lovlarni Excel fayliga export qilish. Celery task orqali asinxron bajariladi.",
+        parameters=[
+            OpenApiParameter('branch_id', OpenApiTypes.UUID, description='Filial ID'),
+            OpenApiParameter('student_profile', OpenApiTypes.UUID, description='O\'quvchi ID'),
+            OpenApiParameter('date_from', OpenApiTypes.DATE, description='Boshlanish sanasi'),
+            OpenApiParameter('date_to', OpenApiTypes.DATE, description='Tugash sanasi'),
+            OpenApiParameter('period', OpenApiTypes.STR, description='Davr'),
+        ],
+    )
+    def post(self, request):
+        """Export taskni boshlash."""
+        from .tasks import export_payments_to_excel
+        
+        # User membership va role tekshirish
+        user_membership = self._get_user_membership()
+        if not user_membership:
+            return Response(
+                {'error': 'Siz hech qaysi filialga tegishli emassiz'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Branch Admin: Faqat o'z branchidan export olsin
+        is_branch_admin = user_membership.role_ref and user_membership.role_ref.name == BranchRole.BRANCH_ADMIN
+        
+        if is_branch_admin:
+            # Branch Admin faqat o'z branchidan export olishi mumkin
+            branch_id = str(user_membership.branch_id)
+            
+            # Agar header/body da boshqa branch_id berilgan bo'lsa, xatolik
+            requested_branch_id = self._get_branch_id() or request.data.get('branch_id')
+            if requested_branch_id and str(requested_branch_id) != branch_id:
+                return Response(
+                    {'error': 'Siz faqat o\'z filialingizdan export olishingiz mumkin'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        else:
+            # Super Admin va boshqalar: Istalgan branchdan (header/body dan)
+            branch_id = self._get_branch_id()
+            
+            # Agar header da yo'q bo'lsa, body dan olamiz
+            if not branch_id and request.data.get('branch_id'):
+                branch_id = request.data.get('branch_id')
+            
+            if not branch_id:
+                return Response(
+                    {'error': 'Branch ID talab qilinadi (X-Branch-Id header yoki branch_id body da)'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Filterlarni olish
+        filters = {}
+        if request.data.get('student_profile'):
+            filters['student_profile'] = request.data.get('student_profile')
+        if request.data.get('date_from'):
+            filters['date_from'] = request.data.get('date_from')
+        if request.data.get('date_to'):
+            filters['date_to'] = request.data.get('date_to')
+        if request.data.get('period'):
+            filters['period'] = request.data.get('period')
+        
+        # Celery taskni boshlash
+        task = export_payments_to_excel.delay(
+            branch_id=branch_id,
+            filters=filters,
+            user_id=str(request.user.id)
+        )
+        
+        return Response({
+            'message': 'Export task boshlandi',
+            'task_id': task.id,
+            'status': 'PENDING'
+        }, status=status.HTTP_202_ACCEPTED)
+
+
+class ExportTaskStatusView(generics.GenericAPIView):
+    """Export task statusini olish."""
+    
+    permission_classes = [IsAuthenticated]
+    
+    @extend_schema(
+        summary="Export task statusini olish",
+        description="Celery task natijasini olish. Task bajarilganda fayl URL ni qaytaradi.",
+    )
+    def get(self, request, task_id):
+        """Task statusini va natijasini olish."""
+        from celery.result import AsyncResult
+        
+        task = AsyncResult(task_id)
+        
+        response_data = {
+            'task_id': task_id,
+            'status': task.state,
+        }
+        
+        if task.state == 'PENDING':
+            response_data['message'] = 'Task kutilmoqda'
+        elif task.state == 'STARTED':
+            response_data['message'] = 'Task bajarilmoqda'
+        elif task.state == 'SUCCESS':
+            result = task.result
+            if result and result.get('success'):
+                response_data['message'] = 'Export muvaffaqiyatli'
+                response_data['file_url'] = result.get('file_url')
+                response_data['filename'] = result.get('filename')
+                response_data['records_count'] = result.get('records_count')
+            else:
+                response_data['message'] = 'Export xatolik'
+                response_data['error'] = result.get('error', 'Noma\'lum xatolik')
+        elif task.state == 'FAILURE':
+            response_data['message'] = 'Task xatolik'
+            response_data['error'] = str(task.info)
+        else:
+            response_data['message'] = f'Task holati: {task.state}'
+        
+        return Response(response_data)
