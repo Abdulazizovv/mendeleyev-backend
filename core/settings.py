@@ -82,6 +82,10 @@ INSTALLED_APPS = [
     "apps.school.dashboard",
     "apps.school.students",
     "apps.school.finance",
+    "apps.school.schedule",
+    "apps.school.attendance",
+    "apps.school.grades",
+    "apps.school.homework",
 ]
 
 MIDDLEWARE = [

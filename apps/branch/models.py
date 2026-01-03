@@ -232,6 +232,36 @@ class BranchSettings(BaseModel):
         help_text='Bir kunda necha soat ish (standart: 8 soat)'
     )
     
+    # Academic scheduling settings
+    working_days = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name='Ish kunlari',
+        help_text='Dars kunlari ro\'yxati. Masalan: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]'
+    )
+    holidays = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name='Bayram kunlari',
+        help_text='Bayram kunlari sanalar ro\'yxati (YYYY-MM-DD formatida). Masalan: ["2026-01-01", "2026-03-08"]'
+    )
+    daily_lesson_start_time = models.TimeField(
+        default='08:00',
+        verbose_name='Birinchi dars boshlanish vaqti',
+        help_text='Har kungi birinchi dars boshlanish vaqti'
+    )
+    daily_lesson_end_time = models.TimeField(
+        default='14:00',
+        verbose_name='Oxirgi dars tugash vaqti',
+        help_text='Har kungi oxirgi dars tugash vaqti'
+    )
+    max_lessons_per_day = models.IntegerField(
+        default=7,
+        validators=[MinValueValidator(1)],
+        verbose_name='Kunlik maksimal darslar soni',
+        help_text='Bir kunda maksimal darslar soni'
+    )
+    
     # Boshqa sozlamalar (JSON formatida)
     additional_settings = models.JSONField(
         default=dict,

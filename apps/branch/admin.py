@@ -23,7 +23,11 @@ class BranchSettingsInline(admin.StackedInline):
 			'fields': ('lesson_duration_minutes', 'break_duration_minutes', 'school_start_time', 'school_end_time')
 		}),
 		(_('Akademik sozlamalar'), {
-			'fields': ('academic_year_start_month', 'academic_year_end_month')
+			'fields': (
+				'academic_year_start_month', 'academic_year_end_month',
+				'working_days', 'holidays', 'daily_lesson_start_time', 
+				'daily_lesson_end_time', 'max_lessons_per_day'
+			)
 		}),
 		(_('Moliya sozlamalari'), {
 			'fields': ('currency', 'currency_symbol')
