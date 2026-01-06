@@ -62,18 +62,18 @@ urlpatterns = [
         views.LessonInstanceListView.as_view(),
         name='lesson-list'
     ),
-    path(
-        'branches/<uuid:branch_id>/lessons/<uuid:lesson_id>/',
-        views.LessonInstanceDetailView.as_view(),
-        name='lesson-detail'
-    ),
-    
     # Lesson Generation
     path(
         'branches/<uuid:branch_id>/lessons/generate/',
         views.generate_lessons,
         name='lesson-generate'
     ),
+    path(
+        'branches/<uuid:branch_id>/lessons/<uuid:lesson_id>/',
+        views.LessonInstanceDetailView.as_view(),
+        name='lesson-detail'
+    ),
+    
     
     # Weekly Schedule
     path(

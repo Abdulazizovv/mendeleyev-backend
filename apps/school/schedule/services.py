@@ -1,6 +1,7 @@
 """Services for schedule management and lesson generation."""
 from django.db.models import Q
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Tuple
 from .models import (
@@ -290,6 +291,15 @@ class LessonGenerator:
                         skipped_count += 1
                         continue
                 
+                # Determine lesson status based on date
+                today = timezone.now().date()
+                if current_date < today:
+                    # Past lessons should be marked as completed by default
+                    lesson_status = LessonStatus.COMPLETED
+                else:
+                    # Future lessons are planned
+                    lesson_status = LessonStatus.PLANNED
+                
                 # Create lesson instance
                 LessonInstance.objects.create(
                     class_subject=slot.class_subject,
@@ -298,7 +308,7 @@ class LessonGenerator:
                     start_time=slot.start_time,
                     end_time=slot.end_time,
                     room=slot.room,
-                    status=LessonStatus.PLANNED,
+                    status=lesson_status,
                     is_auto_generated=True,
                     timetable_slot=slot
                 )

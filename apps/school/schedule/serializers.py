@@ -155,20 +155,26 @@ class TimetableSlotCreateSerializer(serializers.ModelSerializer):
     def validate(self, data):
         """Validate slot data and check conflicts."""
         # Basic validation
-        if data['start_time'] >= data['end_time']:
-            raise serializers.ValidationError({
-                'end_time': 'Tugash vaqti boshlanish vaqtidan keyin bo\'lishi kerak.'
-            })
+        if data.get('start_time') and data.get('end_time'):
+            if data['start_time'] >= data['end_time']:
+                raise serializers.ValidationError({
+                    'end_time': 'Tugash vaqti boshlanish vaqtidan keyin bo\'lishi kerak.'
+                })
         
-        # Validate class_subject belongs to class
-        if data['class_subject'].class_obj_id != data['class_obj'].id:
-            raise serializers.ValidationError({
-                'class_subject': 'Tanlangan fan ushbu sinfga tegishli emas.'
-            })
+        # Validate class_subject belongs to class (if both provided)
+        class_subject = data.get('class_subject') or (self.instance.class_subject if self.instance else None)
+        class_obj = data.get('class_obj') or (self.instance.class_obj if self.instance else None)
         
-        # Validate room belongs to same branch
-        if data.get('room'):
-            if data['room'].branch_id != data['class_obj'].branch_id:
+        if class_subject and class_obj:
+            if class_subject.class_obj_id != class_obj.id:
+                raise serializers.ValidationError({
+                    'class_subject': 'Tanlangan fan ushbu sinfga tegishli emas.'
+                })
+        
+        # Validate room belongs to same branch (if both provided)
+        room = data.get('room')
+        if room and class_obj:
+            if room.branch_id != class_obj.branch_id:
                 raise serializers.ValidationError({
                     'room': 'Xona sinfning filialiga tegishli emas.'
                 })
@@ -176,9 +182,28 @@ class TimetableSlotCreateSerializer(serializers.ModelSerializer):
         # Check conflicts if enabled
         check_conflicts = data.pop('check_conflicts', True)
         if check_conflicts:
-            # Create temporary slot for conflict checking
-            temp_slot = TimetableSlot(**data)
-            conflicts = ScheduleConflictDetector.check_slot_conflicts(temp_slot)
+            # For update, use existing instance data as base
+            if self.instance:
+                slot_data = {
+                    'timetable': data.get('timetable', self.instance.timetable),
+                    'class_obj': data.get('class_obj', self.instance.class_obj),
+                    'class_subject': data.get('class_subject', self.instance.class_subject),
+                    'day_of_week': data.get('day_of_week', self.instance.day_of_week),
+                    'lesson_number': data.get('lesson_number', self.instance.lesson_number),
+                    'start_time': data.get('start_time', self.instance.start_time),
+                    'end_time': data.get('end_time', self.instance.end_time),
+                    'room': data.get('room', self.instance.room),
+                }
+                temp_slot = TimetableSlot(**slot_data)
+                exclude_slot_id = self.instance.id
+            else:
+                temp_slot = TimetableSlot(**data)
+                exclude_slot_id = None
+            
+            conflicts = ScheduleConflictDetector.check_slot_conflicts(
+                temp_slot, 
+                exclude_slot_id=exclude_slot_id
+            )
             
             if conflicts:
                 raise serializers.ValidationError({

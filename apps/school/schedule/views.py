@@ -278,7 +278,7 @@ class LessonInstanceListView(AuditTrailMixin, generics.ListCreateAPIView):
     
     def get_queryset(self):
         branch_id = self.kwargs.get('branch_id')
-        return LessonInstance.objects.filter(
+        queryset = LessonInstance.objects.filter(
             class_subject__class_obj__branch_id=branch_id,
             deleted_at__isnull=True
         ).select_related(
@@ -286,6 +286,17 @@ class LessonInstanceListView(AuditTrailMixin, generics.ListCreateAPIView):
             'class_subject__subject', 'class_subject__teacher',
             'room', 'topic'
         )
+        
+        # Date range filtering
+        date_from = self.request.query_params.get('date_from')
+        date_to = self.request.query_params.get('date_to')
+        
+        if date_from:
+            queryset = queryset.filter(date__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(date__lte=date_to)
+        
+        return queryset
     
     def get_serializer_class(self):
         if self.request.method == 'POST':
@@ -303,7 +314,9 @@ class LessonInstanceListView(AuditTrailMixin, generics.ListCreateAPIView):
     @extend_schema(
         summary="List lesson instances",
         parameters=[
-            OpenApiParameter('date', type=str, description='Filter by date (YYYY-MM-DD)'),
+            OpenApiParameter('date', type=str, description='Filter by exact date (YYYY-MM-DD)'),
+            OpenApiParameter('date_from', type=str, description='Filter by start date (YYYY-MM-DD)'),
+            OpenApiParameter('date_to', type=str, description='Filter by end date (YYYY-MM-DD)'),
             OpenApiParameter('class_subject', type=str, description='Filter by class subject ID'),
             OpenApiParameter('status', type=str, description='Filter by status'),
         ],

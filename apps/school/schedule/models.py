@@ -206,14 +206,14 @@ class TimetableSlot(BaseModel):
             })
         
         # Validate class_subject belongs to class
-        if self.class_subject and self.class_obj:
+        if self.class_subject_id and self.class_obj_id:
             if self.class_subject.class_obj_id != self.class_obj_id:
                 raise ValidationError({
                     'class_subject': 'Tanlangan fan ushbu sinfga tegishli emas.'
                 })
         
         # Validate room belongs to same branch
-        if self.room and self.class_obj:
+        if self.room_id and self.class_obj_id:
             if self.room.branch_id != self.class_obj.branch_id:
                 raise ValidationError({
                     'room': 'Xona filialga tegishli emas.'
@@ -223,6 +223,44 @@ class TimetableSlot(BaseModel):
         """Validate before saving."""
         self.full_clean()
         super().save(*args, **kwargs)
+    
+    def soft_delete(self, user=None):
+        """
+        Soft delete slot and delete future planned auto-generated lessons.
+        """
+        from django.utils import timezone
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        # Delete future planned lessons from this slot
+        today = timezone.now().date()
+        future_lessons = LessonInstance.objects.filter(
+            timetable_slot=self,
+            is_auto_generated=True,
+            status=LessonStatus.PLANNED,
+            date__gte=today,
+            deleted_at__isnull=True
+        )
+        
+        count = future_lessons.count()
+        if count > 0:
+            logger.info(
+                f"Deleting {count} future planned lessons from slot {self.id} "
+                f"({self.class_obj.name} - {self.day_of_week} - lesson {self.lesson_number})"
+            )
+            future_lessons.delete()
+        
+        # Soft delete the slot itself
+        return super().soft_delete(user=user)
+    
+    def delete(self, using=None, keep_parents=False, hard=False):
+        """
+        Override delete to handle lesson cleanup.
+        """
+        if not hard:
+            return self.soft_delete()
+        return super().delete(using=using, keep_parents=keep_parents, hard=True)
 
 
 class LessonTopic(BaseModel):
@@ -405,14 +443,14 @@ class LessonInstance(BaseModel):
             })
         
         # Validate topic belongs to subject
-        if self.topic and self.class_subject:
+        if self.topic_id and self.class_subject_id:
             if self.topic.subject_id != self.class_subject.subject_id:
                 raise ValidationError({
                     'topic': 'Mavzu ushbu fanga tegishli emas.'
                 })
         
         # Validate room belongs to same branch
-        if self.room and self.class_subject:
+        if self.room_id and self.class_subject_id:
             if self.room.branch_id != self.class_subject.class_obj.branch_id:
                 raise ValidationError({
                     'room': 'Xona filialga tegishli emas.'

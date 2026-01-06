@@ -9,8 +9,8 @@ class TimetableSlotInline(admin.TabularInline):
     """Inline for timetable slots within a template."""
     model = TimetableSlot
     extra = 0
-    fields = ('day_of_week', 'lesson_number', 'start_time', 'end_time', 'class_subject', 'room')
-    autocomplete_fields = ('class_subject', 'room')
+    fields = ('class_obj', 'class_subject', 'day_of_week', 'lesson_number', 'start_time', 'end_time', 'room')
+    autocomplete_fields = ('class_obj', 'class_subject', 'room')
     ordering = ('day_of_week', 'lesson_number')
 
 
@@ -65,7 +65,7 @@ class TimetableTemplateAdmin(admin.ModelAdmin):
 @admin.register(TimetableSlot)
 class TimetableSlotAdmin(admin.ModelAdmin):
     list_display = (
-        'timetable', 'day_of_week_display', 'lesson_number', 
+        'timetable', 'class_obj', 'day_of_week_display', 'lesson_number', 
         'start_time', 'end_time', 'class_subject', 'room'
     )
     list_filter = ('timetable', 'day_of_week', 'lesson_number', 'class_subject__class_obj')
@@ -73,14 +73,14 @@ class TimetableSlotAdmin(admin.ModelAdmin):
         'timetable__name', 'class_subject__class_obj__name', 
         'class_subject__subject__name', 'room__name'
     )
-    autocomplete_fields = ('timetable', 'class_subject', 'room')
+    autocomplete_fields = ('timetable', 'class_obj', 'class_subject', 'room')
     readonly_fields = ('created_at', 'updated_at', 'deleted_at', 'created_by', 'updated_by')
     list_per_page = 50
     ordering = ('timetable', 'day_of_week', 'lesson_number')
     
     fieldsets = (
         (_('Jadval ma\'lumotlari'), {
-            'fields': ('timetable', 'class_subject')
+            'fields': ('timetable', 'class_obj', 'class_subject')
         }),
         (_('Vaqt va joy'), {
             'fields': ('day_of_week', 'lesson_number', 'start_time', 'end_time', 'room')

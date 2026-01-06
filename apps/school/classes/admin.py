@@ -10,6 +10,8 @@ class ClassAdmin(admin.ModelAdmin):
     list_filter = ('branch', 'academic_year', 'grade_level', 'is_active', 'created_at')
     search_fields = ('name', 'branch__name', 'academic_year__name', 'section')
     autocomplete_fields = ('branch', 'academic_year', 'class_teacher')
+    # Enable autocomplete for other models
+    search_fields = ['name', 'section', 'branch__name', 'academic_year__name']
     readonly_fields = ('created_at', 'updated_at', 'deleted_at', 'created_by', 'updated_by', 'current_students_count_display')
     list_per_page = 50
     

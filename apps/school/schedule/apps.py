@@ -5,3 +5,7 @@ class ScheduleConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'apps.school.schedule'
     verbose_name = 'Dars jadvali'
+    
+    def ready(self):
+        """Import signals when app is ready."""
+        import apps.school.schedule.signals  # noqa
