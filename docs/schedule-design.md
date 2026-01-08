@@ -4,157 +4,254 @@
 
 Dars jadvali moduli sinflar, o'qituvchilar va xonalar uchun haftalik dars jadvalini boshqarish uchun mo'ljallangan.
 
-## Model Struktura
+**Yangi arxitektura (2026):**
+- Timetable Template har bir **chorak** uchun yaratiladi (academic_year emas)
+- Choraklar akademik yil yaratilishi bilan avtomatik yaratiladi
+- JWT tokendan branch_id olinadi (URL'da branch_id kerak emas)
 
-### Schedule
-Dars jadvali yozuvi.
+## Choraklar Tizimi
 
-**Maydonlar:**
-- `id` (UUID) - Jadval yozuvi ID
-- `class_obj` (ForeignKey to Class) - Sinf
-- `class_subject` (ForeignKey to ClassSubject) - Sinf fani
-- `teacher` (ForeignKey to BranchMembership) - O'qituvchi
-- `room` (ForeignKey to Room, optional) - Xona
-- `day_of_week` (Integer, 1-7) - Haftaning kuni (1=Dushanba, 7=Yakshanba)
-- `start_time` (Time) - Dars boshlanish vaqti
-- `end_time` (Time) - Dars tugash vaqti
-- `lesson_number` (Integer, 1-8) - Dars raqami
-- `is_active` (Boolean) - Faol
-- `notes` (Text, optional) - Qo'shimcha eslatmalar
-- `created_by`, `updated_by` - Audit trail
-- `created_at`, `updated_at` - Vaqt
+### Avtomatik Chorak Yaratish
+Akademik yil yaratilganda avtomatik 4 ta chorak yaratiladi:
 
-**Meta:**
-- `unique_together`: [('class_obj', 'day_of_week', 'lesson_number')]
-- `indexes`: 
-  - [('class_obj', 'day_of_week')]
-  - [('teacher', 'day_of_week', 'start_time')]
-  - [('room', 'day_of_week', 'start_time')]
+- **1-chorak**: 2-sentyabr - 4-noyabr
+- **2-chorak**: 10-noyabr - 27-dekabr
+- **3-chorak**: 5-yanvar - 20-mart
+- **4-chorak**: 28-mart - 31-may
 
-**Validation:**
-- `start_time < end_time`
-- `day_of_week` 1-7 orasida
-- `lesson_number` 1-8 orasida
-- O'qituvchi bir vaqtda ikki darsda bo'lishi mumkin emas (konflikt tekshiruvi)
-- Xona bir vaqtda ikki darsda bo'lishi mumkin emas (konflikt tekshiruvi)
+### Chorak API Endpoints
 
-## API Endpoints
-
-### 1. Dars jadvali ro'yxati va yaratish
-
-**GET** `/api/v1/school/schedules/`
-- Dars jadvali ro'yxati
-- Query params: 
-  - `class_id` - Sinf bo'yicha
-  - `teacher_id` - O'qituvchi bo'yicha
-  - `room_id` - Xona bo'yicha
-  - `day_of_week` - Haftaning kuni bo'yicha
-  - `is_active` - Faol jadvallar
-
-**POST** `/api/v1/school/schedules/`
-- Dars jadvali yaratish
-- Body: `class_obj_id`, `class_subject_id`, `teacher_id`, `room_id`, `day_of_week`, `start_time`, `end_time`, `lesson_number`, `is_active`, `notes`
-- Validation: Konflikt tekshiruvi
-
-### 2. Dars jadvali detail
-
-**GET** `/api/v1/school/schedules/<uuid:schedule_id>/`
-- Dars jadvali ma'lumotlari
-
-**PATCH** `/api/v1/school/schedules/<uuid:schedule_id>/`
-- Dars jadvali yangilash
-- Validation: Konflikt tekshiruvi
-
-**DELETE** `/api/v1/school/schedules/<uuid:schedule_id>/`
-- Dars jadvali o'chirish
-
-### 3. Sinf jadvali
-
-**GET** `/api/v1/school/schedules/classes/<uuid:class_id>/`
-- Sinf jadvali (haftaning barcha kunlari)
-- Response format:
-  ```json
-  {
-    "class_id": "uuid",
-    "class_name": "1-A",
-    "schedule": {
-      "1": [  // Dushanba
-        {
-          "id": "uuid",
-          "lesson_number": 1,
-          "start_time": "08:00",
-          "end_time": "08:45",
-          "subject": "Matematika",
-          "teacher": "Ali Valiyev",
-          "room": "101"
-        }
-      ],
-      "2": [],  // Seshanba
-      ...
-    }
-  }
-  ```
-
-### 4. O'qituvchi jadvali
-
-**GET** `/api/v1/school/schedules/teachers/<uuid:teacher_id>/`
-- O'qituvchi jadvali (haftaning barcha kunlari)
-
-### 5. Xona jadvali
-
-**GET** `/api/v1/school/schedules/rooms/<uuid:room_id>/`
-- Xona jadvali (haftaning barcha kunlari)
-
-### 6. Konflikt tekshiruvi
-
-**POST** `/api/v1/school/schedules/check-conflicts/`
-- Jadval yaratishdan oldin konflikt tekshiruvi
-- Body: `teacher_id`, `room_id`, `day_of_week`, `start_time`, `end_time`
+**GET** `/api/v1/school/academic/branches/<uuid:branch_id>/quarters/current/`
+- Joriy aktiv chorakni qaytaradi
+- Agar `is_active=True` chorak yo'q bo'lsa, bugungi sanaga mos chorakni topadi
 - Response:
   ```json
   {
-    "has_conflicts": true,
-    "teacher_conflict": {
-      "schedule_id": "uuid",
-      "class_name": "1-A",
-      "subject": "Matematika"
-    },
-    "room_conflict": {
-      "schedule_id": "uuid",
-      "class_name": "2-B",
-      "subject": "Fizika"
-    }
+    "id": "uuid",
+    "academic_year": "uuid",
+    "name": "1-chorak",
+    "number": 1,
+    "start_date": "2025-09-02",
+    "end_date": "2025-11-04",
+    "is_active": true,
+    "created_at": "2025-09-01T10:00:00Z",
+    "updated_at": "2025-09-01T10:00:00Z"
   }
   ```
 
+**GET** `/api/v1/school/academic/academic-years/<uuid:academic_year_id>/quarters/`
+- Akademik yilning barcha choraklarini qaytaradi
+
+## Timetable Template API
+
+### 1. Joriy Chorak Uchun Template Olish/Yaratish (Yangi!)
+
+**GET/POST** `/api/v1/schedule/timetables/current/`
+
+**Branch ID:** JWT tokendan olinadi (`br` claim)
+
+**GET** - Joriy aktiv chorak uchun template qaytaradi:
+- Permissions: `branch_admin`, `super_admin`, `teacher` (read-only)
+- Agar template mavjud bo'lmasa: 404 error + chorak ma'lumotlari
+
+Response (200):
+```json
+{
+  "id": "uuid",
+  "branch": "uuid",
+  "branch_name": "Markaziy filial",
+  "academic_year": "uuid",
+  "academic_year_name": "2025-2026",
+  "name": "1-chorak - 2025-2026",
+  "description": "Avtomatik yaratilgan jadval - 1-chorak",
+  "is_active": true,
+  "effective_from": "2025-09-02",
+  "effective_until": "2025-11-04",
+  "slots_count": 120,
+  "created_at": "2025-09-01T10:00:00Z",
+  "updated_at": "2025-09-01T10:00:00Z"
+}
+```
+
+Response (404 - template yo'q):
+```json
+{
+  "error": "Joriy chorak uchun aktiv template topilmadi.",
+  "quarter": {
+    "id": "uuid",
+    "name": "1-chorak",
+    "number": 1,
+    "start_date": "2025-09-02",
+    "end_date": "2025-11-04"
+  }
+}
+```
+
+**POST** - Joriy chorak uchun yangi template yaratadi:
+- Permissions: `branch_admin`, `super_admin`
+- Agar template mavjud bo'lsa: mavjud templateni qaytaradi (200)
+- Agar yo'q bo'lsa: yangi yaratadi (201)
+- Template nomi avtomatik: `"{chorak.name} - {academic_year.name}"`
+- `effective_from` = `quarter.start_date`
+- `effective_until` = `quarter.end_date`
+- `is_active` = `True`
+
+Response (201 - yangi yaratildi):
+```json
+{
+  "id": "uuid",
+  "branch": "uuid",
+  "branch_name": "Markaziy filial",
+  "academic_year": "uuid",
+  "academic_year_name": "2025-2026",
+  "name": "1-chorak - 2025-2026",
+  "description": "Avtomatik yaratilgan jadval - 1-chorak",
+  "is_active": true,
+  "effective_from": "2025-09-02",
+  "effective_until": "2025-11-04",
+  "slots_count": 0,
+  "created_at": "2025-09-01T12:30:00Z",
+  "updated_at": "2025-09-01T12:30:00Z"
+}
+```
+
+**Error Responses:**
+- `400`: JWT tokendan branch_id topilmadi
+- `403`: Faqat adminlar POST qilishi mumkin
+- `404`: Aktiv akademik yil yoki chorak topilmadi
+
+### 2. Template Ro'yxati va Yaratish (Eski API)
+
+**GET** `/api/v1/schedule/branches/<uuid:branch_id>/timetables/`
+- Timetable templatelar ro'yxati
+- Query params: `academic_year`, `is_active`, `search`
+
+**POST** `/api/v1/schedule/branches/<uuid:branch_id>/timetables/`
+- Yangi template yaratish (manual)
+
+### 3. Template Detail
+
+**GET/PATCH/DELETE** `/api/v1/schedule/branches/<uuid:branch_id>/timetables/<uuid:template_id>/`
+
+## Model Struktura
+
+### TimetableTemplate
+Chorak uchun dars jadvali shabloni.
+
+**Maydonlar:**
+- `id` (UUID)
+- `branch` (ForeignKey to Branch)
+- `academic_year` (ForeignKey to AcademicYear)
+- `name` (String, max 255)
+- `description` (Text, optional)
+- `is_active` (Boolean) - Faqat bitta aktiv template chorak uchun
+- `effective_from` (Date) - Chorak boshlanish sanasi
+- `effective_until` (Date, optional) - Chorak tugash sanasi
+
+**Constraints:**
+- Unique: [`branch`, `academic_year`, `is_active`] WHERE `is_active=True` AND `deleted_at IS NULL`
+
+### TimetableSlot
+Haftalik slot (dars vaqti).
+
+**Maydonlar:**
+- `timetable` (ForeignKey to TimetableTemplate)
+- `class_obj` (ForeignKey to Class)
+- `class_subject` (ForeignKey to ClassSubject)
+- `day_of_week` (Choice: monday-sunday)
+- `lesson_number` (Integer, 1-15)
+- `start_time` (Time)
+- `end_time` (Time)
+- `room` (ForeignKey to Room, optional)
+
+**Validation:**
+- `start_time < end_time`
+- `class_subject` must belong to `class_obj`
+- `room` must belong to same branch
+- **Konflikt tekshiruvi:**
+  - O'qituvchi bir vaqtda ikki darsda bo'lolmaydi
+  - Xona bir vaqtda ikki sinfda ishlatilolmaydi
+
+### LessonInstance
+Aniq sanada bo'ladigan real dars.
+
+**Maydonlar:**
+- `class_subject` (ForeignKey to ClassSubject)
+- `date` (Date)
+- `lesson_number` (Integer, 1-15)
+- `start_time` (Time)
+- `end_time` (Time)
+- `room` (ForeignKey to Room, optional)
+- `topic` (ForeignKey to LessonTopic, optional)
+- `homework` (Text, optional)
+- `teacher_notes` (Text, optional)
+- `status` (Choice: planned, in_progress, completed, canceled)
+- `is_auto_generated` (Boolean)
+- `timetable_slot` (ForeignKey to TimetableSlot, optional)
+
+## Slot API Endpoints
+
+### Slot Ro'yxati va Yaratish
+
+**GET** `/api/v1/schedule/branches/<uuid:branch_id>/timetables/<uuid:template_id>/slots/`
+- Query params: `day_of_week`, `lesson_number`, `class_obj`, `room`
+
+**POST** `/api/v1/schedule/branches/<uuid:branch_id>/timetables/<uuid:template_id>/slots/`
+- Request body: `class_obj`, `class_subject`, `day_of_week`, `lesson_number`, `start_time`, `end_time`, `room`, `check_conflicts`
+
+**POST** `/api/v1/schedule/branches/<uuid:branch_id>/timetables/<uuid:template_id>/slots/bulk-create/`
+- Bulk slot yaratish
+- Request: `{ "slots": [...], "check_conflicts": true }`
+
+### Konflikt Tekshiruvi
+
+**POST** `/api/v1/schedule/branches/<uuid:branch_id>/timetables/<uuid:template_id>/check-conflicts/`
+- Slot yaratishdan oldin konfliktlarni tekshirish
+
+## Lesson Instance API
+
+### Darslar Ro'yxati
+
+**GET** `/api/v1/schedule/branches/<uuid:branch_id>/lessons/`
+- Query params: `date`, `class_subject`, `status`, `lesson_number`
+- O'qituvchilar faqat o'z darslarini ko'radi
+
+### Haftalik Jadval
+
+**GET** `/api/v1/schedule/branches/<uuid:branch_id>/schedule/weekly/`
+- Query params: `class_id` (required), `week_start` (required, Monday YYYY-MM-DD)
+- Bir sinf uchun bir haftaning barcha darslarini qaytaradi
+
+### Darslarni Generatsiya Qilish
+
+**POST** `/api/v1/schedule/branches/<uuid:branch_id>/lessons/generate/`
+- Request body:
+  ```json
+  {
+    "timetable_id": "uuid",
+    "start_date": "2025-09-02",
+    "end_date": "2025-11-04",
+    "skip_existing": true
+  }
+  ```
+- Slotlardan aniq sanalar uchun darslar yaratadi
+- Bayram va dam olish kunlarini o'tkazib yuboradi
+
 ## Permissions
 
-- `branch_admin` - Barcha operatsiyalar
-- `super_admin` - Barcha operatsiyalar
-- `teacher` - O'z jadvalini ko'rish
-- `student` - O'z sinfi jadvalini ko'rish
-
-## Filtering va Search
-
-- `class_id` - Sinf bo'yicha
-- `teacher_id` - O'qituvchi bo'yicha
-- `room_id` - Xona bo'yicha
-- `day_of_week` - Haftaning kuni bo'yicha
-- `is_active` - Faol jadvallar
+- **branch_admin, super_admin**: Barcha operatsiyalar
+- **teacher**: 
+  - O'z darslarini ko'rish, mavzu va uy vazifa qo'shish
+  - Templates'ni faqat o'qish
+- **student, parent**: 
+  - Sinf jadvalini ko'rish
+  - Faqat o'qish
 
 ## Integratsiya
 
-- **Class** - Sinflar bilan bog'langan
-- **ClassSubject** - Sinf fanlari bilan bog'langan
-- **Room** - Xonalar bilan bog'langan
-- **Attendance** - Davomat bilan integratsiya (darslar jadvaldan olinadi)
-
-## Keyingi Qadamlar
-
-1. Model yaratish
-2. Konflikt tekshiruvi logikasi
-3. Serializers yaratish
-4. Views yaratish
-5. Admin panel sozlash
-6. Testlar yozish
-
+- **AcademicYear** - Akademik yillar
+- **Quarter** - Choraklar (avtomatik yaratiladi)
+- **Class** - Sinflar
+- **ClassSubject** - Sinf fanlari
+- **Room** - Xonalar
+- **Attendance** - Davomat (darslardan foydalanadi)

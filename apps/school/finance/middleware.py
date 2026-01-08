@@ -62,9 +62,28 @@ class BranchIsolationMiddleware:
     
     def _extract_branch_id(self, request):
         """Branch ID ni olish."""
-        # JWT claim
-        if hasattr(request, "auth") and isinstance(request.auth, dict):
-            br_claim = request.auth.get("br") or request.auth.get("branch_id")
+        # JWT claim - SimpleJWT token obyekti
+        if hasattr(request, "auth") and request.auth:
+            br_claim = None
+            try:
+                # Token obyekti bo'lsa (AccessToken, UntypedToken)
+                if hasattr(request.auth, "payload") and isinstance(request.auth.payload, dict):
+                    br_claim = request.auth.payload.get("br") or request.auth.payload.get("branch_id")
+                # Dict bo'lsa (test yoki force_authenticate)
+                elif isinstance(request.auth, dict):
+                    br_claim = request.auth.get("br") or request.auth.get("branch_id")
+                # Token mapping interface
+                elif hasattr(request.auth, "get"):
+                    br_claim = request.auth.get("br") or request.auth.get("branch_id")
+                # Last resort: direct indexing
+                else:
+                    try:
+                        br_claim = request.auth["br"]
+                    except:
+                        pass
+            except Exception:
+                pass
+                
             if br_claim:
                 try:
                     return str(UUID(str(br_claim)))

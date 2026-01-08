@@ -5,6 +5,13 @@ from . import views
 app_name = 'schedule'
 
 urlpatterns = [
+    # Current Timetable (JWT-based, no branch_id in URL)
+    path(
+        'timetables/current/',
+        views.get_or_create_current_timetable,
+        name='current-timetable'
+    ),
+    
     # Timetable Templates
     path(
         'branches/<uuid:branch_id>/timetables/',

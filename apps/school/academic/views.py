@@ -5,6 +5,7 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 from apps.branch.models import Branch
 from apps.common.permissions import HasBranchRole
@@ -32,7 +33,7 @@ class AcademicYearListView(AuditTrailMixin, generics.ListCreateAPIView):
         """Filial bo'yicha akademik yillarni qaytaradi."""
         branch_id = self.kwargs.get('branch_id')
         branch = get_object_or_404(Branch, id=branch_id)
-        return AcademicYear.objects.filter(branch=branch).prefetch_related('quarters')
+        return AcademicYear.objects.filter(branch=branch, deleted_at__isnull=True).prefetch_related('quarters')
     
     def get_serializer_class(self):
         if self.request.method == 'POST':
@@ -176,7 +177,8 @@ class CurrentAcademicYearView(generics.RetrieveAPIView):
         branch = get_object_or_404(Branch, id=branch_id)
         academic_year = AcademicYear.objects.filter(
             branch=branch,
-            is_active=True
+            is_active=True,
+            delete_at__isnull=True
         ).prefetch_related('quarters').first()
         
         if not academic_year:
@@ -194,3 +196,60 @@ class CurrentAcademicYearView(generics.RetrieveAPIView):
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
 
+
+class CurrentQuarterView(generics.RetrieveAPIView):
+    """Joriy aktiv chorak."""
+    
+    permission_classes = [IsAuthenticated, HasBranchRole]
+    required_branch_roles = ("branch_admin", "super_admin", "teacher", "student", "parent")
+    serializer_class = QuarterSerializer
+    
+    def get_object(self):
+        """
+        Joriy aktiv chorakni qaytaradi.
+        Agar hech qanday aktiv chorak yo'q bo'lsa, bugungi sanaga mos chorakni qaytaradi.
+        """
+        branch_id = self.kwargs.get('branch_id')
+        branch = get_object_or_404(Branch, id=branch_id)
+        
+        # Avval aktiv akademik yilni topamiz
+        academic_year = AcademicYear.objects.filter(
+            branch=branch,
+            is_active=True
+        ).first()
+        
+        if not academic_year:
+            from rest_framework.exceptions import NotFound
+            raise NotFound('Joriy akademik yil topilmadi.')
+        
+        # Avval is_active=True chorakni qidiramiz
+        quarter = Quarter.objects.filter(
+            academic_year=academic_year,
+            is_active=True
+        ).first()
+        
+        if quarter:
+            return quarter
+        
+        # Agar yo'q bo'lsa, bugungi sanaga mos chorakni topamiz
+        today = timezone.now().date()
+        quarter = Quarter.objects.filter(
+            academic_year=academic_year,
+            start_date__lte=today,
+            end_date__gte=today
+        ).first()
+        
+        if not quarter:
+            raise NotFound('Joriy chorak topilmadi. Iltimos, choraklarni tekshiring.')
+        
+        return quarter
+    
+    @extend_schema(
+        summary="Joriy aktiv chorak",
+        description="Joriy aktiv chorakni qaytaradi. Agar is_active=True chorak yo'q bo'lsa, bugungi sanaga mos chorakni qaytaradi.",
+        parameters=[
+            OpenApiParameter('branch_id', type=OpenApiTypes.UUID, location=OpenApiParameter.PATH),
+        ],
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)

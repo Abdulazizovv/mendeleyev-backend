@@ -7,10 +7,13 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from django.db.models import Q, Prefetch
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from datetime import timedelta
 
-from apps.common.permissions import HasBranchRole
+from apps.common.permissions import HasBranchRole, get_branch_id_from_jwt
 from apps.common.mixins import AuditTrailMixin
+from apps.school.academic.models import AcademicYear, Quarter
 from .models import (
     TimetableTemplate, TimetableSlot, LessonInstance, 
     LessonTopic, DayOfWeek, LessonStatus
@@ -353,6 +356,148 @@ class LessonInstanceDetailView(AuditTrailMixin, generics.RetrieveUpdateDestroyAP
             # For update/delete, check if teacher owns this lesson
             self.required_branch_roles = ('branch_admin', 'teacher', 'super_admin')
         return super().get_permissions()
+
+
+# ========== Current Timetable View ==========
+
+@extend_schema(
+    summary="Get or create current timetable template",
+    description="""
+    Joriy aktiv chorak uchun timetable template olish yoki yaratish.
+    
+    GET: Joriy aktiv chorak uchun aktiv template qaytaradi. Agar yo'q bo'lsa 404.
+    POST: Joriy aktiv chorak uchun template yaratadi (agar mavjud bo'lsa, mavjud templateni qaytaradi).
+    
+    Branch ID JWT tokendan olinadi (br claim).
+    """,
+    responses={
+        200: TimetableTemplateSerializer,
+        201: TimetableTemplateSerializer,
+        404: {'description': 'Aktiv akademik yil yoki chorak topilmadi'},
+    }
+)
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated, HasBranchRole])
+def get_or_create_current_timetable(request):
+    """
+    Get or create current timetable template for current active quarter.
+    Branch ID is extracted from JWT token.
+    """
+    # Get branch_id from JWT token
+    
+    branch_id = get_branch_id_from_jwt(request)
+
+    if not branch_id:
+        return Response({
+            "error": "Branch id not found"
+        })
+    
+    # Check if user has permission (admin for POST, read for GET)
+    if request.method == 'POST':
+        if not hasattr(request.user, 'branch_memberships'):
+            return Response(
+                {'error': 'Foydalanuvchi filialga a\'zo emas'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        membership = request.user.branch_memberships.filter(
+            branch_id=branch_id,
+            role__in=['branch_admin', 'super_admin']
+        ).first()
+        
+        if not membership:
+            return Response(
+                {'error': 'Faqat adminlar yangi template yaratishi mumkin.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+    
+    # Get active academic year
+    academic_year = AcademicYear.objects.filter(
+        branch_id=branch_id,
+        is_active=True,
+        deleted_at__isnull=True
+    ).first()
+    
+    if not academic_year:
+        return Response(
+            {'error': 'Aktiv akademik yil topilmadi. Iltimos, avval akademik yil yarating.'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Get current active quarter
+    quarter = Quarter.objects.filter(
+        academic_year=academic_year,
+        is_active=True,
+        deleted_at__isnull=True
+    ).first()
+    
+    # If no active quarter, try to find quarter by current date
+    if not quarter:
+        today = timezone.now().date()
+        quarter = Quarter.objects.filter(
+            academic_year=academic_year,
+            start_date__lte=today,
+            end_date__gte=today,
+            deleted_at__isnull=True
+        ).first()
+    
+    if not quarter:
+        return Response(
+            {'error': 'Joriy chorak topilmadi. Iltimos, choraklar sozlamalarini tekshiring.'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Try to get existing template for this quarter
+    template = TimetableTemplate.objects.filter(
+        branch_id=branch_id,
+        academic_year=academic_year,
+        is_active=True,
+        effective_from__lte=quarter.end_date,
+        deleted_at__isnull=True
+    ).filter(
+        Q(effective_until__gte=quarter.start_date) | Q(effective_until__isnull=True)
+    ).first()
+    
+    if request.method == 'GET':
+        if not template:
+            return Response(
+                {
+                    'error': 'Joriy chorak uchun aktiv template topilmadi.',
+                    'quarter': {
+                        'id': str(quarter.id),
+                        'name': quarter.name,
+                        'number': quarter.number,
+                        'start_date': quarter.start_date.isoformat(),
+                        'end_date': quarter.end_date.isoformat(),
+                    }
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        serializer = TimetableTemplateSerializer(template)
+        return Response(serializer.data)
+    
+    # POST - create if not exists
+    if template:
+        # Template already exists, return it
+        serializer = TimetableTemplateSerializer(template)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    # Create new template
+    template_name = f"{quarter.name} - {academic_year.name}"
+    template = TimetableTemplate.objects.create(
+        branch_id=branch_id,
+        academic_year=academic_year,
+        name=template_name,
+        description=f"Avtomatik yaratilgan jadval - {quarter.name}",
+        is_active=True,
+        effective_from=quarter.start_date,
+        effective_until=quarter.end_date,
+        created_by=request.user
+    )
+    
+    serializer = TimetableTemplateSerializer(template)
+    return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 # ========== Lesson Generation Views ==========

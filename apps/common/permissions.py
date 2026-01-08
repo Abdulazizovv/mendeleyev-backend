@@ -13,6 +13,35 @@ def _parse_uuid(value: str) -> Optional[str]:
         return str(value)
     except Exception:
         return None
+    
+
+def get_branch_id_from_jwt(request):
+    """Extract branch_id from JWT token (supports multiple token formats)."""
+    try:
+        if hasattr(request, "auth") and request.auth:
+            br_claim = None
+            # Token obyekti bo'lsa (AccessToken, UntypedToken) - .payload ishlatamiz
+            if hasattr(request.auth, "payload") and isinstance(request.auth.payload, dict):
+                br_claim = request.auth.payload.get("br") or request.auth.payload.get("branch_id")
+            # Dict bo'lsa (test yoki force_authenticate)
+            elif isinstance(request.auth, dict):
+                br_claim = request.auth.get("br") or request.auth.get("branch_id")
+            # Token mapping interface
+            elif hasattr(request.auth, "get"):
+                br_claim = request.auth.get("br") or request.auth.get("branch_id")
+            # Last resort: direct indexing
+            else:
+                try:
+                    br_claim = request.auth["br"]
+                except:
+                    pass
+                    
+            uid = _parse_uuid(br_claim) if br_claim else None
+            if uid:
+                return uid
+    except Exception:
+        pass
+    return None
 
 
 class IsSuperAdmin(BasePermission):
@@ -80,8 +109,24 @@ class HasBranchRole(BasePermission):
             pass
         # JWT claim as fallback (least explicit but convenient default)
         try:
-            if hasattr(request, "auth") and isinstance(request.auth, dict):
-                br_claim = request.auth.get("br") or request.auth.get("branch_id")
+            if hasattr(request, "auth") and request.auth:
+                br_claim = None
+                # Token obyekti bo'lsa (AccessToken, UntypedToken)
+                if hasattr(request.auth, "payload") and isinstance(request.auth.payload, dict):
+                    br_claim = request.auth.payload.get("br") or request.auth.payload.get("branch_id")
+                # Dict bo'lsa (test yoki force_authenticate)
+                elif isinstance(request.auth, dict):
+                    br_claim = request.auth.get("br") or request.auth.get("branch_id")
+                # Token mapping interface
+                elif hasattr(request.auth, "get"):
+                    br_claim = request.auth.get("br") or request.auth.get("branch_id")
+                # Last resort: direct indexing
+                else:
+                    try:
+                        br_claim = request.auth["br"]
+                    except:
+                        pass
+                        
                 uid = _parse_uuid(br_claim) if br_claim else None
                 if uid:
                     return uid

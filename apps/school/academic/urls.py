@@ -4,6 +4,7 @@ from .views import (
     AcademicYearDetailView,
     QuarterListView,
     CurrentAcademicYearView,
+    CurrentQuarterView,
 )
 
 app_name = 'academic'
@@ -18,5 +19,5 @@ urlpatterns = [
     
     # Current
     path('branches/<uuid:branch_id>/academic-years/current/', CurrentAcademicYearView.as_view(), name='current-academic-year'),
+    path('branches/<uuid:branch_id>/quarters/current/', CurrentQuarterView.as_view(), name='current-quarter'),
 ]
-
