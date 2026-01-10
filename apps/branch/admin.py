@@ -20,7 +20,7 @@ class BranchSettingsInline(admin.StackedInline):
 	fk_name = "branch"
 	fieldsets = (
 		(_('Dars jadvali sozlamalari'), {
-			'fields': ('lesson_duration_minutes', 'break_duration_minutes', 'school_start_time', 'school_end_time')
+			'fields': ('lesson_duration_minutes', 'break_duration_minutes', 'school_start_time', 'school_end_time', 'lunch_break_start', 'lunch_break_end')
 		}),
 		(_('Akademik sozlamalar'), {
 			'fields': (
@@ -116,7 +116,7 @@ class BranchAdmin(admin.ModelAdmin):
 
 @admin.register(BranchSettings)
 class BranchSettingsAdmin(admin.ModelAdmin):
-	list_display = ('branch', 'lesson_duration_minutes', 'break_duration_minutes', 'school_start_time', 'school_end_time', 'currency', 'created_at')
+	list_display = ('branch', 'lesson_duration_minutes', 'break_duration_minutes', 'school_start_time', 'school_end_time', 'lunch_break_start', 'lunch_break_end', 'currency', 'created_at')
 	list_filter = ('currency', 'academic_year_start_month', 'academic_year_end_month')
 	search_fields = ('branch__name', 'currency')
 	autocomplete_fields = ('branch',)
@@ -127,7 +127,7 @@ class BranchSettingsAdmin(admin.ModelAdmin):
 			'fields': ('branch',)
 		}),
 		(_('Dars jadvali sozlamalari'), {
-			'fields': ('lesson_duration_minutes', 'break_duration_minutes', 'school_start_time', 'school_end_time')
+			'fields': ('lesson_duration_minutes', 'break_duration_minutes', 'school_start_time', 'school_end_time', 'lunch_break_start', 'lunch_break_end')
 		}),
 		(_('Akademik sozlamalar'), {
 			'fields': ('academic_year_start_month', 'academic_year_end_month')

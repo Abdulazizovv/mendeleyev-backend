@@ -16,6 +16,8 @@ Successfully implemented a comprehensive multi-tenant school academic management
 - `daily_lesson_start_time` - School start time
 - `daily_lesson_end_time` - School end time  
 - `max_lessons_per_day` - Maximum lessons per day (default: 7)
+- `lunch_break_start` (TimeField, optional) - Tushlik tanaffusi boshlanish vaqti
+- `lunch_break_end` (TimeField, optional) - Tushlik tanaffusi tugash vaqti
 
 **API Endpoints**:
 - `PUT /api/v1/branches/{id}/settings/` - Update branch settings
@@ -23,6 +25,8 @@ Successfully implemented a comprehensive multi-tenant school academic management
 
 **Features**:
 - Validation ensures time ranges are valid
+- Lunch break times must both be set or both be null
+- Lunch break must be within school hours
 - Used by LessonGenerator to respect working days/holidays
 
 ---

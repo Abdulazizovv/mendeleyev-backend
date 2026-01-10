@@ -90,6 +90,92 @@ Filiallar ikki turda: `school` yoki `center`. Har bir branch umumiy tizimga bog'
   - `amount` musbat bo'lsa qo'shadi, manfiy bo'lsa ayiradi (butun son, so'm)
   - Response: Yangilangan membership ma'lumotlari
 
+### Branch Settings (Filial sozlamalari)
+
+- **GET** `/api/branches/{branch_id}/settings/` — Filial sozlamalarini ko'rish
+  - SuperAdmin: istalgan filial sozlamalarini ko'rishi mumkin
+  - BranchAdmin: faqat o'z filiali sozlamalarini ko'rishi mumkin
+  - Response:
+    ```json
+    {
+      "id": "<uuid>",
+      "branch": "<uuid>",
+      "branch_name": "Alpha School",
+      "lesson_duration_minutes": 45,
+      "break_duration_minutes": 10,
+      "school_start_time": "08:00:00",
+      "school_end_time": "17:00:00",
+      "lunch_break_start": "12:00:00",
+      "lunch_break_end": "13:00:00",
+      "academic_year_start_month": 9,
+      "academic_year_end_month": 6,
+      "currency": "UZS",
+      "currency_symbol": "so'm",
+      "working_days": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"],
+      "holidays": ["2026-01-01", "2026-03-08"],
+      "daily_lesson_start_time": "08:00:00",
+      "daily_lesson_end_time": "14:00:00",
+      "max_lessons_per_day": 7,
+      "additional_settings": {},
+      "created_at": "...",
+      "updated_at": "..."
+    }
+    ```
+
+- **PATCH** `/api/branches/{branch_id}/settings/` — Filial sozlamalarini yangilash
+  - SuperAdmin: istalgan filial sozlamalarini yangilashi mumkin
+  - BranchAdmin: faqat o'z filiali sozlamalarini yangilashi mumkin
+  - Request (barcha maydonlar ixtiyoriy):
+    ```json
+    {
+      "lesson_duration_minutes": 45,
+      "break_duration_minutes": 10,
+      "school_start_time": "08:00",
+      "school_end_time": "17:00",
+      "lunch_break_start": "12:00",
+      "lunch_break_end": "13:00",
+      "working_days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+      "holidays": ["2026-01-01", "2026-03-21"],
+      "max_lessons_per_day": 7
+    }
+    ```
+  - **Validation**:
+    - `lunch_break_start` va `lunch_break_end` ikkalasi ham kiritilishi yoki ikkalasi ham bo'sh bo'lishi kerak
+    - Tushlik tanaffusi boshlanish vaqti tugash vaqtidan oldin bo'lishi kerak
+    - Tushlik tanaffusi maktab ish vaqti ichida bo'lishi kerak
+    - Dars davomiyligi 0 dan katta bo'lishi kerak
+    - Tanaffus davomiyligi 0 dan kichik bo'lmasligi kerak
+
+## BranchSettings Model
+
+Har bir filial sozlamalari quyidagi maydonlarga ega:
+
+### Dars jadvali sozlamalari:
+- `lesson_duration_minutes` — Dars davomiyligi (daqiqa, default: 45)
+- `break_duration_minutes` — Tanaffus davomiyligi (daqiqa, default: 10)
+- `school_start_time` — Maktab boshlanish vaqti (default: "08:00")
+- `school_end_time` — Maktab tugash vaqti (default: "17:00")
+- `lunch_break_start` — Tushlik tanaffusi boshlanish vaqti (ixtiyoriy)
+- `lunch_break_end` — Tushlik tanaffusi tugash vaqti (ixtiyoriy)
+
+### Akademik sozlamalar:
+- `academic_year_start_month` — Akademik yil boshlanish oyi (1-12, default: 9)
+- `academic_year_end_month` — Akademik yil tugash oyi (1-12, default: 6)
+- `working_days` — Ish kunlari ro'yxati (JSON, masalan: ["monday", "tuesday", ...])
+- `holidays` — Bayram kunlari (JSON, masalan: ["2026-01-01", "2026-03-08"])
+- `daily_lesson_start_time` — Birinchi dars boshlanish vaqti (default: "08:00")
+- `daily_lesson_end_time` — Oxirgi dars tugash vaqti (default: "14:00")
+- `max_lessons_per_day` — Kunlik maksimal darslar soni (default: 7)
+
+### Moliya sozlamalari:
+- `currency` — Valyuta (default: "UZS")
+- `currency_symbol` — Valyuta belgisi (default: "so'm")
+
+### Qo'shimcha:
+- `additional_settings` — Qo'shimcha sozlamalar (JSON)
+
+**Eslatma**: Tushlik tanaffusi ixtiyoriy. Agar tushlik tanaffusi kerak bo'lsa, `lunch_break_start` va `lunch_break_end` ikkalasi ham kiritilishi kerak.
+
 ## Ruxsatlar
 
 - `IsSuperAdmin` — Platforma bo'ylab barcha huquqlar

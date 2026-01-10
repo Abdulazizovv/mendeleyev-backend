@@ -157,6 +157,20 @@ class BranchSettings(BaseModel):
         help_text='Kunlik darslar tugash vaqti'
     )
     
+    # Tushlik tanaffusi sozlamalari
+    lunch_break_start = models.TimeField(
+        blank=True,
+        null=True,
+        verbose_name='Tushlik tanaffusi boshlanish vaqti',
+        help_text='Tushlik tanaffusi boshlanish vaqti (masalan: 12:00). Bo\'sh qoldirilsa, tushlik tanaffusi yo\'q'
+    )
+    lunch_break_end = models.TimeField(
+        blank=True,
+        null=True,
+        verbose_name='Tushlik tanaffusi tugash vaqti',
+        help_text='Tushlik tanaffusi tugash vaqti (masalan: 13:00). Bo\'sh qoldirilsa, tushlik tanaffusi yo\'q'
+    )
+    
     # Akademik sozlamalar
     academic_year_start_month = models.IntegerField(
         default=9,

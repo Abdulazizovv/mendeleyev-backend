@@ -17,6 +17,8 @@ class BranchSettingsSerializer(serializers.ModelSerializer):
             'break_duration_minutes',
             'school_start_time',
             'school_end_time',
+            'lunch_break_start',
+            'lunch_break_end',
             'academic_year_start_month',
             'academic_year_end_month',
             'currency',
@@ -45,6 +47,8 @@ class BranchSettingsUpdateSerializer(serializers.ModelSerializer):
             'break_duration_minutes',
             'school_start_time',
             'school_end_time',
+            'lunch_break_start',
+            'lunch_break_end',
             'academic_year_start_month',
             'academic_year_end_month',
             'currency',
@@ -120,6 +124,32 @@ class BranchSettingsUpdateSerializer(serializers.ModelSerializer):
         if daily_start and daily_end and daily_start >= daily_end:
             raise serializers.ValidationError({
                 'daily_lesson_end_time': 'Oxirgi dars tugash vaqti birinchi dars boshlanish vaqtidan keyin bo\'lishi kerak.'
+            })
+        
+        # Validate lunch break times
+        lunch_start = data.get('lunch_break_start', self.instance.lunch_break_start if self.instance else None)
+        lunch_end = data.get('lunch_break_end', self.instance.lunch_break_end if self.instance else None)
+        
+        if (lunch_start and not lunch_end) or (lunch_end and not lunch_start):
+            raise serializers.ValidationError({
+                'lunch_break_start': 'Tushlik tanaffusi boshlanish va tugash vaqti ikkalasi ham kiritilishi kerak.',
+                'lunch_break_end': 'Tushlik tanaffusi boshlanish va tugash vaqti ikkalasi ham kiritilishi kerak.'
+            })
+        
+        if lunch_start and lunch_end and lunch_start >= lunch_end:
+            raise serializers.ValidationError({
+                'lunch_break_end': 'Tushlik tanaffusi tugash vaqti boshlanish vaqtidan keyin bo\'lishi kerak.'
+            })
+        
+        # Validate lunch break is within school hours
+        if lunch_start and start_time and lunch_start < start_time:
+            raise serializers.ValidationError({
+                'lunch_break_start': 'Tushlik tanaffusi maktab boshlanish vaqtidan keyin bo\'lishi kerak.'
+            })
+        
+        if lunch_end and end_time and lunch_end > end_time:
+            raise serializers.ValidationError({
+                'lunch_break_end': 'Tushlik tanaffusi maktab tugash vaqtidan oldin bo\'lishi kerak.'
             })
         
         return data
