@@ -1246,3 +1246,254 @@ class SalaryPaymentViewSet(viewsets.ReadOnlyModelViewSet):
 	)
 	def retrieve(self, request, *args, **kwargs):
 		return super().retrieve(request, *args, **kwargs)
+
+
+# ==================== Dashboard Statistics View ====================
+
+class BranchDashboardStatisticsView(APIView):
+	"""
+	Branch Admin uchun asosiy sahifa statistikasi.
+	
+	Qaytaradigan ma'lumotlar:
+	- Jami o'quvchilar soni
+	- Qarzdor o'quvchilar soni
+	- Xodimlar soni
+	- Bugungi darslar soni
+	- Oylik to'lovlar statistikasi
+	- Balans ma'lumotlari
+	"""
+	permission_classes = [IsAuthenticated, HasBranchRole]
+	
+	@extend_schema(
+		summary="Branch asosiy sahifa statistikasi",
+		description="Branch admin uchun asosiy ma'lumotlar: o'quvchilar, xodimlar, darslar, moliya",
+		parameters=[
+			OpenApiParameter(
+				'X-Branch-ID',
+				type=str,
+				location=OpenApiParameter.HEADER,
+				required=True,
+				description='Branch ID (header orqali)'
+			)
+		],
+		responses={
+			200: {
+				'type': 'object',
+				'properties': {
+					'branch_id': {'type': 'string'},
+					'branch_name': {'type': 'string'},
+					'students': {
+						'type': 'object',
+						'properties': {
+							'total': {'type': 'integer'},
+							'active': {'type': 'integer'},
+							'with_debt': {'type': 'integer'},
+							'total_debt_amount': {'type': 'integer'},
+						}
+					},
+					'staff': {
+						'type': 'object',
+						'properties': {
+							'total': {'type': 'integer'},
+							'teachers': {'type': 'integer'},
+							'admins': {'type': 'integer'},
+							'other': {'type': 'integer'},
+						}
+					},
+					'lessons': {
+						'type': 'object',
+						'properties': {
+							'today': {'type': 'integer'},
+							'this_week': {'type': 'integer'},
+							'completed_today': {'type': 'integer'},
+						}
+					},
+					'finance': {
+						'type': 'object',
+						'properties': {
+							'total_balance': {'type': 'integer'},
+							'this_month_income': {'type': 'integer'},
+							'this_month_expenses': {'type': 'integer'},
+							'recent_payments_count': {'type': 'integer'},
+						}
+					},
+				}
+			}
+		}
+	)
+	def get(self, request):
+		"""Branch statistikasini olish."""
+		from django.db.models import Q, Count, Sum
+		from django.utils import timezone
+		from datetime import timedelta
+		from auth.profiles.models import StudentProfile
+		from apps.school.finance.models import StudentSubscription, Payment
+		from apps.school.schedule.models import LessonInstance
+		from apps.common.permissions import get_branch_id_from_jwt		
+  
+		# Get branch from header
+		branch_id = get_branch_id_from_jwt(request)
+		if not branch_id:
+			return Response(
+				{'error': 'X-Branch-ID header is required'},
+				status=status.HTTP_400_BAD_REQUEST
+			)
+		
+		try:
+			branch = Branch.objects.get(id=branch_id, deleted_at__isnull=True)
+		except Branch.DoesNotExist:
+			return Response(
+				{'error': 'Branch not found'},
+				status=status.HTTP_404_NOT_FOUND
+			)
+		
+		# Check permissions - only branch admin or super admin
+		membership = BranchMembership.objects.filter(
+			user=request.user,
+			branch=branch,
+			role__in=[BranchRole.BRANCH_ADMIN, BranchRole.SUPER_ADMIN],
+			deleted_at__isnull=True
+		).first()
+		
+		if not membership:
+			return Response(
+				{'error': 'Permission denied. Branch admin role required.'},
+				status=status.HTTP_403_FORBIDDEN
+			)
+		
+		today = timezone.now().date()
+		week_start = today - timedelta(days=today.weekday())  # Monday
+		month_start = today.replace(day=1)
+		
+		# ==================== O'quvchilar statistikasi ====================
+		student_memberships = BranchMembership.objects.filter(
+			branch=branch,
+			role=BranchRole.STUDENT,
+			deleted_at__isnull=True
+		)
+		
+		total_students = student_memberships.count()
+		
+		# Active students
+		active_students = student_memberships.filter(
+			student_profile__status='active'
+		).count()
+		
+		# Students with debt
+		students_with_debt = StudentSubscription.objects.filter(
+			branch=branch,
+			is_active=True,
+			total_debt__gt=0,
+			deleted_at__isnull=True
+		).values('student_profile').distinct().count()
+		
+		# Total debt amount
+		total_debt_amount = StudentSubscription.objects.filter(
+			branch=branch,
+			is_active=True,
+			deleted_at__isnull=True
+		).aggregate(
+			total=Sum('total_debt')
+		)['total'] or 0
+		
+		# ==================== Xodimlar statistikasi ====================
+		staff_memberships = BranchMembership.objects.filter(
+			branch=branch,
+			deleted_at__isnull=True
+		).exclude(
+			role__in=[BranchRole.STUDENT, BranchRole.PARENT]
+		)
+		
+		total_staff = staff_memberships.count()
+		teachers_count = staff_memberships.filter(role=BranchRole.TEACHER).count()
+		admins_count = staff_memberships.filter(
+			role__in=[BranchRole.BRANCH_ADMIN, BranchRole.SUPER_ADMIN]
+		).count()
+		other_staff = staff_memberships.filter(role=BranchRole.OTHER).count()
+		
+		# ==================== Darslar statistikasi ====================
+		# Today's lessons
+		today_lessons = LessonInstance.objects.filter(
+			class_subject__class_obj__branch=branch,
+			date=today,
+			deleted_at__isnull=True
+		).count()
+		
+		# This week's lessons
+		week_lessons = LessonInstance.objects.filter(
+			class_subject__class_obj__branch=branch,
+			date__gte=week_start,
+			date__lte=today,
+			deleted_at__isnull=True
+		).count()
+		
+		# Completed today
+		completed_today = LessonInstance.objects.filter(
+			class_subject__class_obj__branch=branch,
+			date=today,
+			status='completed',
+			deleted_at__isnull=True
+		).count()
+		
+		# ==================== Moliya statistikasi ====================
+		# Branch total balance
+		branch_balance = branch.balance if hasattr(branch, 'balance') else 0
+		
+		# This month's income (payments from students)
+		month_income = Payment.objects.filter(
+			branch=branch,
+			payment_date__gte=month_start,
+			payment_date__lte=today,
+			deleted_at__isnull=True
+		).aggregate(
+			total=Sum('final_amount')
+		)['total'] or 0
+		
+		# This month's expenses (salary payments)
+		month_expenses = SalaryPayment.objects.filter(
+			membership__branch=branch,
+			payment_date__gte=month_start,
+			payment_date__lte=today,
+			status='paid',
+			deleted_at__isnull=True
+		).aggregate(
+			total=Sum('amount')
+		)['total'] or 0
+		
+		# Recent payments count (last 30 days)
+		recent_payments = Payment.objects.filter(
+			branch=branch,
+			payment_date__gte=month_start,
+			deleted_at__isnull=True
+		).count()
+		
+		# ==================== Response ====================
+		data = {
+			'branch_id': str(branch.id),
+			'branch_name': branch.name,
+			'students': {
+				'total': total_students,
+				'active': active_students,
+				'with_debt': students_with_debt,
+				'total_debt_amount': total_debt_amount,
+			},
+			'staff': {
+				'total': total_staff,
+				'teachers': teachers_count,
+				'admins': admins_count,
+				'other': other_staff,
+			},
+			'lessons': {
+				'today': today_lessons,
+				'this_week': week_lessons,
+				'completed_today': completed_today,
+			},
+			'finance': {
+				'total_balance': branch_balance,
+				'this_month_income': month_income,
+				'this_month_expenses': month_expenses,
+				'recent_payments_count': recent_payments,
+			},
+		}
+		
+		return Response(data)

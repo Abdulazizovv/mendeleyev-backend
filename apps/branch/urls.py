@@ -12,6 +12,7 @@ from .views import (
     BranchSettingsViewSet,
     BalanceTransactionViewSet,
     SalaryPaymentViewSet,
+    BranchDashboardStatisticsView,
 )
 
 # Router for ViewSets
@@ -23,6 +24,8 @@ router.register(r'payments', SalaryPaymentViewSet, basename='salary-payment')
 
 urlpatterns = [
     path("managed/", ManagedBranchesView.as_view(), name="managed-branches"),
+    # Dashboard statistics
+    path("school/dashboard/statistics/", BranchDashboardStatisticsView.as_view(), name="dashboard-statistics"),
     # Role endpoints
     path("<uuid:branch_id>/roles/", RoleListView.as_view(), name="branch-roles-list"),
     path("<uuid:branch_id>/roles/<uuid:id>/", RoleDetailView.as_view(), name="branch-role-detail"),
