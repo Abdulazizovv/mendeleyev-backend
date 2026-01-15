@@ -215,14 +215,14 @@ class ClassStudentCreateSerializer(serializers.ModelSerializer):
                     'membership': f'Sinf to\'ldi. Maksimal o\'quvchilar soni: {class_obj.max_students}'
                 })
             
-            # Check if student is already enrolled
+            # Check if student is already enrolled in any class in the branch
             if ClassStudent.objects.filter(
-                class_obj=class_obj,
+                class_obj__branch=class_obj.branch,
                 membership=membership,
                 deleted_at__isnull=True
             ).exists():
                 raise serializers.ValidationError({
-                    'membership': 'Bu o\'quvchi allaqachon bu sinfga qo\'shilgan.'
+                    'membership': 'Bu o\'quvchi allaqachon filialdagi boshqa sinfga qo\'shilgan.'
                 })
         
         return data

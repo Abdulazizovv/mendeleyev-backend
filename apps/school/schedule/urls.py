@@ -88,4 +88,11 @@ urlpatterns = [
         views.weekly_schedule,
         name='weekly-schedule'
     ),
+    
+    # Schedule Availability
+    path(
+        'branches/<uuid:branch_id>/schedule/availability/',
+        views.ScheduleAvailabilityView.as_view(),
+        name='schedule-availability'
+    ),
 ]

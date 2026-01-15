@@ -39,7 +39,7 @@ class AvailableStudentsApiTests(TestCase):
         ids = [item['id'] for item in resp.json().get('results', [])]
         self.assertIn(str(self.m2.id), ids)
         self.assertIn(str(self.m3.id), ids)
-        self.assertNotIn(str(self.m1.id), ids)
+        self.assertNotIn(str(self.m1.id), ids)  # m1 is enrolled in this branch's class
 
     def test_search_by_phone(self):
         resp = self.client.get(self.url + "?search=000000012", HTTP_X_BRANCH_ID=str(self.branch.id))

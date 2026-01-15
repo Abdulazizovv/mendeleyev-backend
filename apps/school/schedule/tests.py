@@ -1,12 +1,13 @@
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from rest_framework.test import APIClient
 from datetime import date, time, timedelta
 from apps.branch.models import Branch, BranchStatuses, BranchMembership, BranchRole, BranchSettings
 from apps.school.academic.models import AcademicYear, Quarter
 from apps.school.classes.models import Class
 from apps.school.subjects.models import Subject, ClassSubject
-from apps.school.rooms.models import Room
+from apps.school.rooms.models import Room, Building
 from apps.school.schedule.models import (
     TimetableTemplate, TimetableSlot, LessonInstance, LessonTopic, LessonStatus
 )
@@ -463,3 +464,148 @@ class LessonTopicModelTest(TestCase):
                 title="Topic 2",
                 position=1  # Duplicate position
             )
+
+
+class ScheduleAvailabilityAPITest(TestCase):
+    """Test ScheduleAvailabilityView API."""
+
+    def setUp(self):
+        self.branch = Branch.objects.create(name="Test Branch", status=BranchStatuses.ACTIVE)
+        self.admin = User.objects.create_user(phone_number="+998900000001", password="pass")
+        self.client = APIClient()
+        self.client.force_authenticate(self.admin)
+        BranchMembership.objects.create(user=self.admin, branch=self.branch, role=BranchRole.BRANCH_ADMIN)
+
+        self.academic_year = AcademicYear.objects.create(
+            branch=self.branch,
+            name="2025-2026",
+            start_date=date(2025, 9, 1),
+            end_date=date(2026, 6, 30),
+            is_active=True
+        )
+
+        self.class_obj = Class.objects.create(
+            branch=self.branch,
+            academic_year=self.academic_year,
+            name="1-A",
+            grade_level=1,
+            max_students=30
+        )
+
+        # Create subjects and teachers
+        self.subject1 = Subject.objects.create(branch=self.branch, name="Matematika")
+        self.subject2 = Subject.objects.create(branch=self.branch, name="Fizika")
+
+        self.teacher1 = User.objects.create_user(phone_number="+998900000002")
+        self.teacher2 = User.objects.create_user(phone_number="+998900000003")
+        self.membership1 = BranchMembership.objects.create(user=self.teacher1, branch=self.branch, role=BranchRole.TEACHER)
+        self.membership2 = BranchMembership.objects.create(user=self.teacher2, branch=self.branch, role=BranchRole.TEACHER)
+
+        self.class_subject1 = ClassSubject.objects.create(
+            class_obj=self.class_obj,
+            subject=self.subject1,
+            teacher=self.membership1
+        )
+        self.class_subject2 = ClassSubject.objects.create(
+            class_obj=self.class_obj,
+            subject=self.subject2,
+            teacher=self.membership2
+        )
+
+        # Create rooms
+        self.building = Building.objects.create(branch=self.branch, name="Asosiy bino", floors=3)
+        self.room1 = Room.objects.create(branch=self.branch, building=self.building, name="101", capacity=30)
+        self.room2 = Room.objects.create(branch=self.branch, building=self.building, name="102", capacity=25)
+
+    def test_availability_check_all_available(self):
+        """Test availability check when everything is available."""
+        url = f"/api/v1/school/branches/{self.branch.id}/schedule/availability/"
+        params = {
+            'class_id': str(self.class_obj.id),
+            'date': '2026-01-15',
+            'start_time': '09:00',
+            'end_time': '10:00'
+        }
+
+        response = self.client.get(url, params, HTTP_X_BRANCH_ID=str(self.branch.id))
+        self.assertEqual(response.status_code, 200)
+
+        data = response.json()
+        self.assertIn('available_subjects', data)
+        self.assertIn('available_rooms', data)
+        self.assertIn('conflicts', data)
+
+        # Should have both subjects available
+        self.assertEqual(len(data['available_subjects']), 2)
+        subject_names = [s['subject_name'] for s in data['available_subjects']]
+        self.assertIn('Matematika', subject_names)
+        self.assertIn('Fizika', subject_names)
+
+        # Should have both rooms available
+        self.assertEqual(len(data['available_rooms']), 2)
+        room_names = [r['name'] for r in data['available_rooms']]
+        self.assertIn('101', room_names)
+        self.assertIn('102', room_names)
+
+        # No conflicts
+        self.assertEqual(len(data['conflicts']), 0)
+
+    def test_availability_check_with_conflicts(self):
+        """Test availability check when there are conflicts."""
+        # Create a conflicting lesson
+        LessonInstance.objects.create(
+            class_subject=self.class_subject1,
+            date=date(2026, 1, 15),
+            lesson_number=1,
+            start_time=time(9, 0),
+            end_time=time(10, 0),
+            room=self.room1,
+            status=LessonStatus.PLANNED
+        )
+
+        url = f"/api/v1/school/branches/{self.branch.id}/schedule/availability/"
+        params = {
+            'class_id': str(self.class_obj.id),
+            'date': '2026-01-15',
+            'start_time': '09:00',
+            'end_time': '10:00'
+        }
+
+        response = self.client.get(url, params, HTTP_X_BRANCH_ID=str(self.branch.id))
+        self.assertEqual(response.status_code, 200)
+
+        data = response.json()
+
+        # Matematika should not be available (teacher conflict)
+        subject_names = [s['subject_name'] for s in data['available_subjects']]
+        self.assertNotIn('Matematika', subject_names)
+        self.assertIn('Fizika', subject_names)
+
+        # Room 101 should not be available (room conflict)
+        room_names = [r['name'] for r in data['available_rooms']]
+        self.assertNotIn('101', room_names)
+        self.assertIn('102', room_names)
+
+        # Should have conflicts
+        self.assertGreater(len(data['conflicts']), 0)
+
+    def test_missing_parameters(self):
+        """Test API with missing required parameters."""
+        url = f"/api/v1/school/branches/{self.branch.id}/schedule/availability/"
+
+        response = self.client.get(url, HTTP_X_BRANCH_ID=str(self.branch.id))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('error', response.json())
+
+    def test_invalid_class_id(self):
+        """Test API with invalid class ID."""
+        url = f"/api/v1/school/branches/{self.branch.id}/schedule/availability/"
+        params = {
+            'class_id': 'invalid-uuid',
+            'date': '2026-01-15',
+            'start_time': '09:00',
+            'end_time': '10:00'
+        }
+
+        response = self.client.get(url, params, HTTP_X_BRANCH_ID=str(self.branch.id))
+        self.assertEqual(response.status_code, 404)

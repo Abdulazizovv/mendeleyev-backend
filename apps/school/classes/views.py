@@ -30,7 +30,7 @@ class ClassListView(AuditTrailMixin, generics.ListCreateAPIView):
     filterset_class = ClassFilter
     search_fields = ['name', 'class_teacher__user__first_name', 'class_teacher__user__last_name']
     ordering_fields = ['name', 'grade_level', 'created_at', 'academic_year__start_date']
-    ordering = ['-created_at']
+    ordering = ['grade_level']
     
     def get_queryset(self):
         """Filial va akademik yil bo'yicha sinflarni qaytaradi."""
@@ -43,7 +43,7 @@ class ClassListView(AuditTrailMixin, generics.ListCreateAPIView):
             'class_teacher',
             'class_teacher__user',
             'room'
-        ).prefetch_related('class_students__membership__user')
+        ).prefetch_related('class_students__membership__user').order_by('grade_level', 'section', 'name')
         
         return queryset
     
@@ -147,10 +147,10 @@ class ClassDetailView(AuditTrailMixin, generics.RetrieveUpdateDestroyAPIView):
 
 
 class ClassAvailableStudentsView(generics.ListAPIView):
-    """Berilgan sinf uchun mavjud (hali biriktirilmagan) o'quvchilar ro'yxati.
+    """Berilgan sinf uchun mavjud (hali hech qaysi sinfga biriktirilmagan) o'quvchilar ro'yxati.
 
     Filial va sinf beriladi, natijada shu filialdagi student roli bo'lgan
-    a'zoliklar ichidan ushbu sinfga kiritilmaganlar qaytariladi.
+    a'zoliklar ichidan hech qaysi sinfga kiritilmaganlar qaytariladi.
     """
 
     permission_classes = [IsAuthenticated, HasBranchRole]
@@ -179,9 +179,9 @@ class ClassAvailableStudentsView(generics.ListAPIView):
             deleted_at__isnull=True
         ).select_related('user', 'branch')
 
-        # Exclude those already in class
+        # Exclude those already enrolled in any class in the branch
         enrolled_ids = ClassStudent.objects.filter(
-            class_obj=class_obj,
+            class_obj__branch=branch,
             deleted_at__isnull=True
         ).values_list('membership_id', flat=True)
 

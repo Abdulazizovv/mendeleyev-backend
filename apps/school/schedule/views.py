@@ -8,6 +8,7 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from django.db.models import Q, Prefetch
 from django.shortcuts import get_object_or_404
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 from datetime import timedelta
 
@@ -642,3 +643,200 @@ def check_slot_conflicts(request, branch_id, template_id, slot_id=None):
             for c in conflicts
         ]
     })
+
+
+# ========== Schedule Availability View ==========
+
+class ScheduleAvailabilityView(generics.GenericAPIView):
+    """
+    Check available subjects and rooms for scheduling a lesson.
+    
+    Returns available subjects (assigned to the class) and rooms 
+    that don't have conflicts at the specified date and time.
+    """
+    permission_classes = [IsAuthenticated, HasBranchRole]
+    required_branch_roles = ('branch_admin', 'super_admin', 'teacher')
+    
+    @extend_schema(
+        summary="Check schedule availability",
+        description="""
+        Berilgan sinf, sana va vaqt uchun mavjud fanlar va xonalarni tekshiradi.
+        
+        Query parameters:
+        - class_id: Sinf ID (required)
+        - date: Sana (YYYY-MM-DD format, required)  
+        - start_time: Boshlanish vaqti (HH:MM format, required)
+        - end_time: Tugash vaqti (HH:MM format, required)
+        
+        Qaytaradi:
+        - available_subjects: Ushbu sinfga biriktirilgan va konflikt bo'lmagan fanlar
+        - available_rooms: Filialdagi va konflikt bo'lmagan xonalar
+        - conflicts: Topilgan konfliktlar (agar bo'lsa)
+        """,
+        parameters=[
+            OpenApiParameter('class_id', type=str, required=True, description='Sinf UUID'),
+            OpenApiParameter('date', type=str, required=True, description='Sana (YYYY-MM-DD)'),
+            OpenApiParameter('start_time', type=str, required=True, description='Boshlanish vaqti (HH:MM)'),
+            OpenApiParameter('end_time', type=str, required=True, description='Tugash vaqti (HH:MM)'),
+        ],
+        responses={
+            200: {
+                'type': 'object',
+                'properties': {
+                    'available_subjects': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'properties': {
+                                'id': {'type': 'string'},
+                                'subject_name': {'type': 'string'},
+                                'teacher_name': {'type': 'string'},
+                                'teacher_id': {'type': 'string'}
+                            }
+                        }
+                    },
+                    'available_rooms': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'properties': {
+                                'id': {'type': 'string'},
+                                'name': {'type': 'string'},
+                                'capacity': {'type': 'integer'}
+                            }
+                        }
+                    },
+                    'conflicts': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'properties': {
+                                'type': {'type': 'string'},
+                                'message': {'type': 'string'},
+                                'details': {'type': 'object'}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+    def get(self, request, branch_id):
+        """Check availability for scheduling a lesson."""
+        from apps.school.subjects.models import ClassSubject
+        from apps.school.rooms.models import Room
+        
+        # Validate required parameters
+        class_id = request.query_params.get('class_id')
+        date_str = request.query_params.get('date')
+        start_time_str = request.query_params.get('start_time')
+        end_time_str = request.query_params.get('end_time')
+        
+        if not all([class_id, date_str, start_time_str, end_time_str]):
+            return Response(
+                {'error': 'class_id, date, start_time, end_time parametrlari majburiy'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Parse date and times
+        try:
+            from datetime import datetime, date, time
+            check_date = date.fromisoformat(date_str)
+            start_time = time.fromisoformat(start_time_str)
+            end_time = time.fromisoformat(end_time_str)
+        except ValueError as e:
+            return Response(
+                {'error': f'Sana yoki vaqt formati noto\'g\'ri: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get class
+        from apps.school.classes.models import Class
+        try:
+            class_obj = Class.objects.get(
+                id=class_id,
+                branch_id=branch_id,
+                deleted_at__isnull=True
+            )
+        except (Class.DoesNotExist, ValidationError):
+            return Response(
+                {'error': 'Sinf topilmadi'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get all subjects assigned to this class
+        class_subjects = ClassSubject.objects.filter(
+            class_obj=class_obj,
+            deleted_at__isnull=True
+        ).select_related('subject', 'teacher')
+        
+        # Get all rooms in the branch
+        rooms = Room.objects.filter(
+            branch_id=branch_id,
+            deleted_at__isnull=True
+        )
+        
+        available_subjects = []
+        available_rooms = []
+        all_conflicts = []
+        
+        # Check subject availability (teacher conflicts)
+        for class_subject in class_subjects:
+            # Create a mock lesson instance to check conflicts
+            mock_lesson = LessonInstance(
+                class_subject=class_subject,
+                date=check_date,
+                start_time=start_time,
+                end_time=end_time,
+                status=LessonStatus.PLANNED
+            )
+            
+            conflicts = ScheduleConflictDetector.check_lesson_conflicts(mock_lesson)
+            
+            if not conflicts:
+                available_subjects.append({
+                    'id': str(class_subject.id),
+                    'subject_name': class_subject.subject.name,
+                    'teacher_name': class_subject.teacher.user.get_full_name() or class_subject.teacher.user.phone_number,
+                    'teacher_id': str(class_subject.teacher.id)
+                })
+            else:
+                all_conflicts.extend(conflicts)
+        
+        # Check room availability
+        for room in rooms:
+            # Create a mock lesson instance to check conflicts
+            # Use first class_subject for room conflict check (doesn't matter which)
+            if class_subjects.exists():
+                mock_lesson = LessonInstance(
+                    class_subject=class_subjects.first(),
+                    date=check_date,
+                    start_time=start_time,
+                    end_time=end_time,
+                    room=room,
+                    status=LessonStatus.PLANNED
+                )
+                
+                conflicts = ScheduleConflictDetector.check_lesson_conflicts(mock_lesson)
+                room_conflicts = [c for c in conflicts if c['type'] == 'room']
+                
+                if not room_conflicts:
+                    available_rooms.append({
+                        'id': str(room.id),
+                        'name': room.name,
+                        'capacity': room.capacity
+                    })
+                else:
+                    all_conflicts.extend(room_conflicts)
+        
+        return Response({
+            'available_subjects': available_subjects,
+            'available_rooms': available_rooms,
+            'conflicts': [
+                {
+                    'type': c['type'],
+                    'message': c['message'],
+                    'details': c.get('details', {})
+                } for c in all_conflicts
+            ]
+        })
