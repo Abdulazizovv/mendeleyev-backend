@@ -1263,6 +1263,7 @@ class BranchDashboardStatisticsView(APIView):
 	- Balans ma'lumotlari
 	"""
 	permission_classes = [IsAuthenticated, HasBranchRole]
+	required_branch_roles = (BranchRole.BRANCH_ADMIN, BranchRole.SUPER_ADMIN)
 	
 	@extend_schema(
 		summary="Branch asosiy sahifa statistikasi",
@@ -1272,9 +1273,15 @@ class BranchDashboardStatisticsView(APIView):
 				'X-Branch-ID',
 				type=str,
 				location=OpenApiParameter.HEADER,
-				required=True,
-				description='Branch ID (header orqali)'
-			)
+				required=False,
+				description="Branch ID (header orqali). Agar berilmasa, JWT ichidagi branch_id/br ishlatiladi."
+			),
+			OpenApiParameter(
+				'branch_id',
+				type=str,
+				description='Branch ID (query param)',
+				required=False,
+			),
 		],
 		responses={
 			200: {
@@ -1328,14 +1335,15 @@ class BranchDashboardStatisticsView(APIView):
 		from datetime import timedelta
 		from auth.profiles.models import StudentProfile
 		from apps.school.finance.models import StudentSubscription, Payment
+		from apps.school.finance.models import CashRegister
 		from apps.school.schedule.models import LessonInstance
-		from apps.common.permissions import get_branch_id_from_jwt		
+		from apps.common.permissions import HasBranchRole
   
-		# Get branch from header
-		branch_id = get_branch_id_from_jwt(request)
+		# Resolve branch context the same way as permission class (header/query/kwargs/JWT)
+		branch_id = HasBranchRole()._get_branch_id(request, self)
 		if not branch_id:
 			return Response(
-				{'error': 'X-Branch-ID header is required'},
+				{'error': 'Branch context kerak. X-Branch-ID header yoki JWT ichidagi branch_id/br yuboring.'},
 				status=status.HTTP_400_BAD_REQUEST
 			)
 		
@@ -1347,23 +1355,10 @@ class BranchDashboardStatisticsView(APIView):
 				status=status.HTTP_404_NOT_FOUND
 			)
 		
-		# Check permissions - only branch admin or super admin
-		membership = BranchMembership.objects.filter(
-			user=request.user,
-			branch=branch,
-			role__in=[BranchRole.BRANCH_ADMIN, BranchRole.SUPER_ADMIN],
-			deleted_at__isnull=True
-		).first()
-		
-		if not membership:
-			return Response(
-				{'error': 'Permission denied. Branch admin role required.'},
-				status=status.HTTP_403_FORBIDDEN
-			)
-		
 		today = timezone.now().date()
 		week_start = today - timedelta(days=today.weekday())  # Monday
 		month_start = today.replace(day=1)
+		last_30_days = today - timedelta(days=30)
 		
 		# ==================== O'quvchilar statistikasi ====================
 		student_memberships = BranchMembership.objects.filter(
@@ -1380,19 +1375,17 @@ class BranchDashboardStatisticsView(APIView):
 		).count()
 		
 		# Students with debt
-		students_with_debt = StudentSubscription.objects.filter(
+		subscriptions_qs = StudentSubscription.objects.filter(
 			branch=branch,
 			is_active=True,
-			total_debt__gt=0,
 			deleted_at__isnull=True
+		)
+		students_with_debt = subscriptions_qs.filter(
+			total_debt__gt=0
 		).values('student_profile').distinct().count()
 		
 		# Total debt amount
-		total_debt_amount = StudentSubscription.objects.filter(
-			branch=branch,
-			is_active=True,
-			deleted_at__isnull=True
-		).aggregate(
+		total_debt_amount = subscriptions_qs.aggregate(
 			total=Sum('total_debt')
 		)['total'] or 0
 		
@@ -1436,8 +1429,12 @@ class BranchDashboardStatisticsView(APIView):
 		).count()
 		
 		# ==================== Moliya statistikasi ====================
-		# Branch total balance
-		branch_balance = branch.balance if hasattr(branch, 'balance') else 0
+		# Branch total cash balance (sum of active cash registers)
+		branch_balance = CashRegister.objects.filter(
+			branch=branch,
+			is_active=True,
+			deleted_at__isnull=True
+		).aggregate(total=Sum('balance'))['total'] or 0
 		
 		# This month's income (payments from students)
 		month_income = Payment.objects.filter(
@@ -1463,7 +1460,7 @@ class BranchDashboardStatisticsView(APIView):
 		# Recent payments count (last 30 days)
 		recent_payments = Payment.objects.filter(
 			branch=branch,
-			payment_date__gte=month_start,
+			payment_date__gte=last_30_days,
 			deleted_at__isnull=True
 		).count()
 		
