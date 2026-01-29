@@ -152,7 +152,7 @@ class OTPService:
         # Enqueue SMS send via Celery
         try:
             from .tasks_otp import send_sms_otp_task
-            send_sms_otp_task.delay(phone, code)
+            send_sms_otp_task.delay(phone, code, purpose)
         except Exception:
             logger.exception("Failed to enqueue OTP send task")
 
@@ -205,3 +205,13 @@ class OTPService:
         r.delete(attempts_key)
         logger.info("OTP verify success", extra={"phone_masked": _mask_phone(phone), "purpose": purpose})
         return True
+
+    @classmethod
+    def peek_code(cls, phone: str, *, purpose: str = "generic") -> tuple[str | None, int]:
+        """Return current code and TTL without consuming it."""
+        r = _get_store()
+        code_key = _key_for_code(phone, purpose)
+        code = r.get(code_key)
+        if not code:
+            return None, -2
+        return str(code), r.ttl(code_key)

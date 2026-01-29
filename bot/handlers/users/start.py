@@ -10,5 +10,4 @@ async def bot_start(message: types.Message, state: FSMContext):
     Handles the /start command.
     """
     await state.finish()
-    await message.answer(f"Hello, {message.from_user.full_name}!\nWelcome to the bot.")
-
+    await message.answer(f"👋 Assalomu alaykum, {message.from_user.full_name}!\nXush kelibsiz!")

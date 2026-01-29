@@ -1,4 +1,5 @@
 from django.db import models
+from django.conf import settings
 from apps.common.models import BaseModel
 
 
@@ -11,6 +12,15 @@ class BotUserStatuses(models.TextChoices):
 
 class BotUser(BaseModel):
 	telegram_id = models.BigIntegerField(unique=True, db_index=True, verbose_name="Telegram ID")
+	user = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		null=True,
+		blank=True,
+		on_delete=models.SET_NULL,
+		related_name="bot_users",
+		verbose_name="Bog'langan foydalanuvchi",
+		help_text="Bu telegram account qaysi foydalanuvchiga bog'langan",
+	)
 	is_bot = models.BooleanField(default=False)
 	first_name = models.CharField(max_length=255, blank=True)
 	last_name = models.CharField(max_length=255, blank=True)
