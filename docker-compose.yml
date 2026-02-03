@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: django
+    container_name: mendeleyev_django
     restart: unless-stopped
     env_file:
       - .env
@@ -19,7 +19,7 @@ services:
 
   db:
     image: postgres:15-alpine
-    container_name: db
+    container_name: mendeleyev_db
     restart: unless-stopped
     env_file:
       - .env
@@ -36,7 +36,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: redis
+    container_name: mendeleyev_redis
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -45,7 +45,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: celery
+    container_name: mendeleyev_celery
     restart: unless-stopped
     env_file:
       - .env
@@ -61,7 +61,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: celery_beat
+    container_name: mendeleyev_celery_beat
     restart: unless-stopped
     env_file:
       - .env
@@ -74,7 +74,7 @@ services:
 
   nginx:
     image: nginx:1.21-alpine
-    container_name: project_nginx
+    container_name: mendeleyev_nginx
     restart: unless-stopped
     ports:
       - "8080:80"

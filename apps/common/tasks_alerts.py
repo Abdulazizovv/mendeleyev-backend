@@ -22,7 +22,7 @@ def _get_redis():  # -> Optional[redis.Redis]
     url = os.getenv("ALERT_REDIS_URL")
     if not url:
         # fallback to standard redis envs
-        host = os.getenv("REDIS_HOST", "redis")
+        host = os.getenv("REDIS_HOST", "mendeleyev_redis")
         port = int(os.getenv("REDIS_PORT", "6379"))
         db = int(os.getenv("REDIS_DB", "0"))
         url = f"redis://{host}:{port}/{db}"

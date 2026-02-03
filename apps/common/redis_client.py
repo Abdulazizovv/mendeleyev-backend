@@ -12,9 +12,9 @@ def get_redis() -> redis.Redis:
     global _redis_client
     if _redis_client is None:
         # Prefer explicit env-style attributes if present; else parse from CELERY_BROKER_URL
-        url = getattr(settings, "CELERY_BROKER_URL", "redis://redis:6379/0")
+        url = getattr(settings, "CELERY_BROKER_URL", "redis://mendeleyev_redis:6379/0")
         parsed = urlparse(url)
-        host = getattr(settings, "REDIS_HOST", None) or parsed.hostname or "redis"
+        host = getattr(settings, "REDIS_HOST", None) or parsed.hostname or "mendeleyev_redis"
         port = int(getattr(settings, "REDIS_PORT", None) or (parsed.port or 6379))
         # Allow override of DB used for OTP via OTP_REDIS_DB env
         db = int(getattr(settings, "OTP_REDIS_DB", None) or (parsed.path.lstrip("/") or 0))

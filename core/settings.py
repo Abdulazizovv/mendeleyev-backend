@@ -348,12 +348,12 @@ ERROR_ALERTS_ENABLED = env.bool("ERROR_ALERTS_ENABLED", default=not DEBUG)
 # Celery configuration
 CELERY_BROKER_URL = env.str(
     "CELERY_BROKER_URL",
-    default=f"redis://{env.str('REDIS_HOST', 'redis')}:{env.int('REDIS_PORT', 6379)}/{env.int('REDIS_DB', 0)}",
+    default=f"redis://{env.str('REDIS_HOST', 'mendeleyev_redis')}:{env.int('REDIS_PORT', 6379)}/{env.int('REDIS_DB', 0)}",
 )
 
 CELERY_RESULT_BACKEND = env.str(
     "CELERY_RESULT_BACKEND",
-    default=f"redis://{env.str('REDIS_HOST', 'redis')}:{env.int('REDIS_PORT', 6379)}/{env.int('REDIS_DB', 0)}",
+    default=f"redis://{env.str('REDIS_HOST', 'mendeleyev_redis')}:{env.int('REDIS_PORT', 6379)}/{env.int('REDIS_DB', 0)}",
 )
 
 CELERY_TASK_TIME_LIMIT = env.int("CELERY_TASK_TIME_LIMIT", 60 * 10)  # hard limit 10m
