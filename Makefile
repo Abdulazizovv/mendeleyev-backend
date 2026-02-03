@@ -31,47 +31,47 @@ down:
 	docker compose down
 
 restart:
-	docker compose restart django
+	docker compose restart mendeleyev_django
 
 logs:
 	docker compose logs -f --tail=200
 
 shell:
-	docker compose exec django python manage.py shell
+	docker compose exec mendeleyev_django python manage.py shell
 
 migrate:
-	docker compose exec django python manage.py migrate
+	docker compose exec mendeleyev_django python manage.py migrate
 
 createsuperuser:
-	docker compose exec django python manage.py createsuperuser
+	docker compose exec mendeleyev_django python manage.py createsuperuser
 
 collectstatic:
-	docker compose exec django python manage.py collectstatic --noinput
+	docker compose exec mendeleyev_django python manage.py collectstatic --noinput
 
 test:
 	# Explicit test labels to avoid discovery import ambiguity
-	docker compose exec django python manage.py test auth.users.tests auth.profiles.tests apps.branch.tests.test_membership apps.branch.tests.test_managed_branches apps.botapp.tests -v 2
+	docker compose exec mendeleyev_django python manage.py test auth.users.tests auth.profiles.tests apps.branch.tests.test_membership apps.branch.tests.test_managed_branches apps.botapp.tests -v 2
 
 lint:
-	- docker compose exec django flake8 || true
+	- docker compose exec mendeleyev_django flake8 || true
 
 setwebhook:
-	docker compose exec django python manage.py setwebhook --drop-pending
+	docker compose exec mendeleyev_django python manage.py setwebhook --drop-pending
 
 deletewebhook:
-	docker compose exec django python manage.py deletewebhook
+	docker compose exec mendeleyev_django python manage.py deletewebhook
 
 webhookinfo:
-	docker compose exec django python manage.py webhookinfo
+	docker compose exec mendeleyev_django python manage.py webhookinfo
 
 celery:
-	docker compose up -d celery
+	docker compose up -d mendeleyev_celery
 
 celery-beat:
-	docker compose up -d celery-beat
+	docker compose up -d mendeleyev_celery_beat
 
 celery-logs:
-	docker compose logs -f celery
+	docker compose logs -f mendeleyev_celery
 
 beat-logs:
-	docker compose logs -f celery-beat
+	docker compose logs -f mendeleyev_celery_beat
