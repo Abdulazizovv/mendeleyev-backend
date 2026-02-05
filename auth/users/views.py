@@ -136,6 +136,9 @@ class MeView(APIView):
                 except Exception:
                     # Silent: keep null if branch not found
                     pass
+        elif len(memberships_data) == 1:
+            # Auto-select single branch if no branch scope in token
+            current_branch_data = memberships_data[0]
 
         response_payload = {
             "user": UserSerializer(user).data,
@@ -310,35 +313,63 @@ class LoginView(generics.GenericAPIView):
             return Response({"state": "NEEDS_PASSWORD"}, status=status.HTTP_200_OK)
         if not user.check_password(password):
             return Response({"detail": "Invalid credentials"}, status=status.HTTP_400_BAD_REQUEST)
-        # Super/admin global by default; can request scoped if branch_id provided
+        
+        # Collect all active memberships for this user
+        from apps.branch.models import BranchMembership
+        qs = BranchMembership.objects.select_related("branch").filter(user_id=user.id, branch__status="active")
+        memberships = list(qs)
+        
+        # Super/admin: can use global token or scoped token
         if user.is_superuser or user.is_staff:
             if branch_id:
+                # Explicit branch requested
                 from apps.branch.models import Branch
                 try:
                     b = Branch.objects.get(id=branch_id, status="active")
                 except Branch.DoesNotExist:
                     return Response({"detail": "Branch not active or not found"}, status=status.HTTP_400_BAD_REQUEST)
+                # Check if user has membership to get role
+                mem = next((m for m in memberships if str(m.branch_id) == str(branch_id)), None)
                 refresh = RefreshToken.for_user(user)
                 access = refresh.access_token
                 refresh["br"] = str(b.id)
                 access["br"] = str(b.id)
+                if mem:
+                    refresh["br_role"] = mem.role
+                    access["br_role"] = mem.role
                 return Response({
                     "access": str(access),
                     "refresh": str(refresh),
                     "user": UserSerializer(user).data,
                     "br": str(b.id),
+                    "br_role": mem.role if mem else None,
                 })
-            refresh = RefreshToken.for_user(user)
-            return Response({
-                "access": str(refresh.access_token),
-                "refresh": str(refresh),
-                "user": UserSerializer(user).data,
-            })
+            elif len(memberships) == 1:
+                # Auto-select single branch for staff users
+                chosen = memberships[0]
+                refresh = RefreshToken.for_user(user)
+                access = refresh.access_token
+                refresh["br"] = str(chosen.branch_id)
+                refresh["br_role"] = chosen.role
+                access["br"] = str(chosen.branch_id)
+                access["br_role"] = chosen.role
+                return Response({
+                    "access": str(access),
+                    "refresh": str(refresh),
+                    "user": UserSerializer(user).data,
+                    "br": str(chosen.branch_id),
+                    "br_role": chosen.role,
+                })
+            else:
+                # Multiple or no branches - return global token
+                refresh = RefreshToken.for_user(user)
+                return Response({
+                    "access": str(refresh.access_token),
+                    "refresh": str(refresh),
+                    "user": UserSerializer(user).data,
+                })
 
         # Non-admin: require active branch membership
-        from apps.branch.models import BranchMembership
-        qs = BranchMembership.objects.select_related("branch").filter(user_id=user.id, branch__status="active")
-        memberships = list(qs)
         if len(memberships) == 0:
             return Response({"state": "NO_BRANCH"}, status=status.HTTP_200_OK)
         chosen = None
