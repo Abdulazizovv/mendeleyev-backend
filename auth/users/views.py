@@ -360,8 +360,13 @@ class LoginView(generics.GenericAPIView):
                     "br": str(chosen.branch_id),
                     "br_role": chosen.role,
                 })
+            elif len(memberships) > 1:
+                # Multiple branches - require explicit selection
+                from .serializers import BranchMembershipSerializer
+                data = [BranchMembershipSerializer.from_membership(m) for m in memberships]
+                return Response({"state": "MULTI_BRANCH", "branches": data}, status=status.HTTP_200_OK)
             else:
-                # Multiple or no branches - return global token
+                # No branches - return global token (superadmin scenario)
                 refresh = RefreshToken.for_user(user)
                 return Response({
                     "access": str(refresh.access_token),
