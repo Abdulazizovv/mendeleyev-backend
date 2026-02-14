@@ -30,10 +30,10 @@ services:
       - nginx_network
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/admin/login/ || exit 1"]
-      interval: 30s
-      timeout: 10s
+      interval: 10s
+      timeout: 5s
       retries: 3
-      start_period: 40s
+      start_period: 20s
     # Security hardening
     security_opt:
       - no-new-privileges:true
