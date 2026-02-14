@@ -16,6 +16,7 @@ services:
       # PRODUCTION: Comment above line, use only these:
       - static_volume:/usr/src/app/staticfiles
       - media_volume:/usr/src/app/media
+      - logs_volume:/usr/src/app/logs
     # NO EXTERNAL PORT - Only accessible via nginx internal network
     expose:
       - "8000"
@@ -168,6 +169,7 @@ services:
       - .:/usr/src/app
       # PRODUCTION
       - media_volume:/usr/src/app/media
+      - logs_volume:/usr/src/app/logs
     depends_on:
       mendeleyev_db:
         condition: service_healthy
@@ -212,6 +214,7 @@ services:
       - .:/usr/src/app
       # PRODUCTION - beat requires write access to schedule file
       - celery_beat_data:/usr/src/app/celerybeat
+      - logs_volume:/usr/src/app/logs
     depends_on:
       mendeleyev_db:
         condition: service_healthy
@@ -310,3 +313,4 @@ volumes:
   static_volume:
   media_volume:
   celery_beat_data:
+  logs_volume:
