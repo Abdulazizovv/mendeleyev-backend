@@ -29,7 +29,7 @@ RUN pip install --no-cache-dir --upgrade pip \
 COPY . /usr/src/app/
 
 # Create directories with correct permissions
-RUN mkdir -p /usr/src/app/staticfiles /usr/src/app/media /usr/src/app/celerybeat \
+RUN mkdir -p /usr/src/app/staticfiles /usr/src/app/media /usr/src/app/celerybeat /usr/src/app/logs \
     && chown -R django:django /usr/src/app
 
 # Make entrypoint executable
