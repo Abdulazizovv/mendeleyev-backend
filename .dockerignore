@@ -1,8 +1,24 @@
-# Git
+# Prevent sensitive files from being copied to Docker image
+# Security: Never include secrets, configs, or development files in production images
+
+# === CRITICAL: SECRETS & ENVIRONMENT ===
+.env
+.env.*
+*.env
+.env.local
+.env.production
+secrets/
+*.key
+*.pem
+*.crt
+
+# === GIT & VERSION CONTROL ===
 .git
 .gitignore
+.gitattributes
+.github/
 
-# Python
+# === PYTHON ===
 __pycache__
 *.pyc
 *.pyo
@@ -19,35 +35,82 @@ nosetests.xml
 coverage.xml
 *.cover
 *.log
-.git
 .mypy_cache
 .pytest_cache
 .hypothesis
 
-# Django
+# === VIRTUAL ENVIRONMENTS ===
+venv/
+env/
+ENV/
+.venv/
+
+# === DJANGO ===
 *.log
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+celerybeat-schedule
+celerybeat-schedule.db
 
-# Virtual environment
-venv/
-env/
-ENV/
+# === DOCKER ===
+docker-compose*.yml
+Dockerfile
+.dockerignore
+.docker/
 
-# Node modules (if any)
-node_modules/
-npm-debug.log*
-
-# IDE
+# === IDE & EDITORS ===
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+.project
+.pydevproject
 
-# OS
+# === OS FILES ===
 .DS_Store
+Thumbs.db
+
+# === DOCUMENTATION (large files) ===
+docs/
+README.md
+*.md
+LICENSE
+
+# === LOGS & TEMPORARY ===
+logs/
+*.log
+tmp/
+temp/
+*.tmp
+
+# === MEDIA & STATIC (use volumes instead) ===
+media/
+staticfiles/
+
+# === TESTING & CI/CD ===
+.pytest_cache/
+test_*.py
+tests/
+.github/
+.gitlab-ci.yml
+
+# === DEPRECATED & BACKUPS ===
+.deprecated/
+*.bak
+*.backup
+*~
+
+# === NODE (if any frontend) ===
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# === MONITORING & PROFILING ===
+*.prof
+*.trace
 .DS_Store?
 ._*
 .Spotlight-V100
