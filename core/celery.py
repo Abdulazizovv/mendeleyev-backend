@@ -20,6 +20,8 @@ try:
     # Import apps.common.tasks_otp and apps.common.tasks_alerts explicitly via autodiscover
     app.autodiscover_tasks(packages=["apps.common"], related_name="tasks_otp")
     app.autodiscover_tasks(packages=["apps.common"], related_name="tasks_alerts")
+    # Import apps.school.students.tasks for student import functionality
+    app.autodiscover_tasks(packages=["apps.school.students"], related_name="tasks")
 except Exception:
     # Safe to ignore if module not present; regular autodiscovery will still work for tasks.py
     pass

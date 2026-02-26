@@ -24,6 +24,7 @@ from .serializers import (
     StudentDocumentsUpdateSerializer,
     StudentUpdateSerializer,
     UserCheckSerializer,
+    StudentImportSerializer,
 )
 from auth.users.models import User
 from .permissions import CanCreateStudent
@@ -832,4 +833,175 @@ class StudentRelativeCheckView(PhoneLookupMixin, APIView):
             "branch_data": branch_data,
             "all_branches_data": all_branches_data,
         })
+
+
+class StudentImportStatusView(APIView):
+    """Import task statusini tekshirish endpointi."""
+    permission_classes = [IsAuthenticated]
+    
+    @extend_schema(
+        responses={200: dict},
+        summary="Import task statusini olish",
+        description="""
+        Import task statusini va natijasini olish.
+        
+        **Task statuslari:**
+        - PENDING - Navbatda kutmoqda
+        - STARTED - Bajarilmoqda
+        - SUCCESS - Muvaffaqiyatli bajarildi
+        - FAILURE - Xatolik yuz berdi
+        
+        **Response (SUCCESS):**
+        ```json
+        {
+          "status": "SUCCESS",
+          "result": {
+            "total": 100,
+            "success": 95,
+            "failed": 3,
+            "skipped": 2,
+            "errors": [...],
+            "students": [...]
+          }
+        }
+        ```
+        
+        **Response (PENDING/STARTED):**
+        ```json
+        {
+          "status": "PENDING",
+          "message": "Import jarayoni davom etmoqda..."
+        }
+        ```
+        """
+    )
+    def get(self, request, task_id):
+        """Task statusini olish."""
+        from celery.result import AsyncResult
+        
+        task_result = AsyncResult(task_id)
+        
+        response_data = {
+            'task_id': task_id,
+            'status': task_result.state,
+        }
+        
+        if task_result.state == 'PENDING':
+            response_data['message'] = 'Task navbatda kutmoqda...'
+        elif task_result.state == 'STARTED':
+            response_data['message'] = 'Import jarayoni davom etmoqda...'
+        elif task_result.state == 'SUCCESS':
+            response_data['result'] = task_result.result
+        elif task_result.state == 'FAILURE':
+            response_data['error'] = str(task_result.info)
+        
+        return Response(response_data, status=status.HTTP_200_OK)
+
+
+class StudentImportView(APIView):
+    """O'quvchilarni Excel fayl orqali import qilish endpointi."""
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    
+    @extend_schema(
+        request=StudentImportSerializer,
+        responses={200: dict},
+        summary="Excel orqali o'quvchilarni import qilish",
+        description="""
+        Excel fayl orqali bir necha o'quvchini bir vaqtda import qilish.
+        
+        **Foydalanish:**
+        - Excel faylda quyidagi ustunlar bo'lishi kerak:
+          - Shartnoma Raqam FIO (O'quvchi FIO)
+          - Balans
+          - Jinsi (male/female)
+          - Guruh
+          - Telefon Raqam
+          - Sinf Rahbari
+          - Tug'ilgan sanai (YYYY-MM-DD yoki DD.MM.YYYY formatida)
+          - Manzil
+          - Passport
+          - 1-Yaqinl Turi (father/mother/guardian va h.k.)
+          - 1-Yaqini FIO
+          - 1-Yaqini Telefon
+          - 2-Yaqini Turi
+          - 2-Yaqini FIO
+          - 2-Yaqini Telefon
+        
+        **Dry run rejimi:**
+        - `dry_run=true` qo'yilsa, faqat validatsiya qilinadi (import qilinmaydi)
+        - Bu rejimda qanday o'quvchilar yaratilishi va qanday xatolar bo'lishi ko'rsatiladi
+        
+        **Permissions:**
+        - super_admin - barcha filiallarda import qilishi mumkin
+        - branch_admin - faqat o'z filialida import qilishi mumkin
+        
+        **Response:**
+        ```json
+        {
+          "total": 100,
+          "success": 95,
+          "failed": 3,
+          "skipped": 2,
+          "errors": [
+            {
+              "row": 5,
+              "error": "Telefon raqam allaqachon mavjud",
+              "student": "Ali Valiyev"
+            }
+          ],
+          "students": [
+            {
+              "id": "uuid",
+              "name": "Ali Valiyev",
+              "phone": "+998901234567",
+              "status": "created"
+            }
+          ]
+        }
+        ```
+        """
+    )
+    def post(self, request):
+        """Excel fayldan o'quvchilarni import qilish."""
+        # Permission tekshiruvi
+        user = request.user
+        
+        # Faqat super_admin va branch_admin import qilishi mumkin
+        memberships = BranchMembership.objects.filter(
+            user=user,
+            deleted_at__isnull=True
+        )
+        
+        is_super_admin = memberships.filter(role='super_admin').exists()
+        branch_admin_branches = list(memberships.filter(role='branch_admin').values_list('branch_id', flat=True))
+        
+        if not is_super_admin and not branch_admin_branches:
+            return Response(
+                {"detail": "Sizda o'quvchilarni import qilish huquqi yo'q. Faqat super_admin va branch_admin import qilishi mumkin."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Filial tekshiruvi
+        branch_id = request.data.get('branch_id')
+        if not branch_id:
+            return Response(
+                {"detail": "branch_id majburiy maydon"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Agar branch_admin bo'lsa, faqat o'z filialida import qilishi mumkin
+        if not is_super_admin and str(branch_id) not in [str(b) for b in branch_admin_branches]:
+            return Response(
+                {"detail": "Siz faqat o'z filialingizda o'quvchilarni import qilishingiz mumkin."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Serializer bilan validatsiya va import
+        serializer = StudentImportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        results = serializer.save()
+        
+        return Response(results, status=status.HTTP_200_OK)
 

@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model
 from apps.branch.models import BranchMembership, BranchRole
 from apps.school.classes.models import Class
 from auth.profiles.models import StudentProfile, StudentRelative
+from datetime import datetime
 
 User = get_user_model()
 
@@ -1367,4 +1368,73 @@ class UserCheckSerializer(serializers.Serializer):
         allow_null=True,
         help_text='Filial ID (ixtiyoriy, agar berilmasa barcha filiallarda qidiriladi)'
     )
+
+
+class StudentImportSerializer(serializers.Serializer):
+    """O'quvchilarni Excel fayl orqali import qilish uchun serializer."""
+    
+    file = serializers.FileField(
+        help_text='Excel fayl (.xlsx yoki .xls formatida)'
+    )
+    branch_id = serializers.UUIDField(
+        help_text='Qaysi filialga import qilish kerak'
+    )
+    dry_run = serializers.BooleanField(
+        default=False,
+        required=False,
+        help_text='Faqat tekshirish rejimi (haqiqiy import qilmasdan validatsiya qilish)'
+    )
+    
+    def validate_file(self, value):
+        """Excel faylni tekshirish."""
+        if not value.name.endswith(('.xlsx', '.xls')):
+            raise serializers.ValidationError("Faqat Excel fayllar qabul qilinadi (.xlsx yoki .xls)")
+        
+        # Fayl hajmini tekshirish (10MB gacha)
+        if value.size > 10 * 1024 * 1024:
+            raise serializers.ValidationError("Fayl hajmi 10MB dan oshmasligi kerak")
+        
+        return value
+    
+    def validate_branch_id(self, value):
+        """Filial mavjudligini tekshirish."""
+        from apps.branch.models import Branch
+        
+        try:
+            branch = Branch.objects.get(id=value, deleted_at__isnull=True)
+            return value
+        except Branch.DoesNotExist:
+            raise serializers.ValidationError("Filial topilmadi")
+    
+    def create(self, validated_data):
+        """
+        Excel fayldan o'quvchilarni import qilish.
+        Celery task orqali asinxron import qilinadi.
+        """
+        import io
+        import logging
+        from .tasks import import_students_task
+        
+        logger = logging.getLogger(__name__)
+        
+        file = validated_data['file']
+        branch_id = str(validated_data['branch_id'])
+        dry_run = validated_data.get('dry_run', False)
+        
+        logger.info(f"Serializer: dry_run={dry_run}, branch_id={branch_id}")
+        
+        # Faylni xotiraga o'qish
+        file_content = file.read()
+        
+        # Celery task ishga tushirish (file content uzatish)
+        result = import_students_task.apply_async(args=[file_content, branch_id, dry_run])
+        
+        logger.info(f"Task yaratildi: task_id={result.id}, args=[file_content_bytes, {branch_id}, {dry_run}]")
+        
+        # Task natijasini kutmasdan task_id qaytarish
+        return {
+            'task_id': result.id,
+            'status': 'processing',
+            'message': 'Import jarayoni boshlandi. Natijalarni keyinroq tekshirishingiz mumkin.'
+        }
 

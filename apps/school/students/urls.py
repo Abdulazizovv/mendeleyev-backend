@@ -8,6 +8,8 @@ from .views import (
     StudentRelativeUpdateView,
     UserCheckView,
     StudentRelativeCheckView,
+    StudentImportView,
+    StudentImportStatusView,
 )
 
 app_name = 'students'
@@ -15,6 +17,8 @@ app_name = 'students'
 urlpatterns = [
     path('', StudentListView.as_view(), name='student-list'),
     path('create/', StudentCreateView.as_view(), name='student-create'),
+    path('import/', StudentImportView.as_view(), name='student-import'),
+    path('import-status/<str:task_id>/', StudentImportStatusView.as_view(), name='student-import-status'),
     path('check-user/', UserCheckView.as_view(), name='user-check'),
     path('check-relative/', StudentRelativeCheckView.as_view(), name='relative-check'),
     path('<uuid:student_id>/', StudentDetailView.as_view(), name='student-detail'),
