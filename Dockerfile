@@ -19,7 +19,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
-RUN groupadd -r django && useradd -r -g django django
+# RUN groupadd -r django && useradd -r -g django django
+
+RUN addgroup -g 1000 django \
+    && adduser -D -u 1000 -G django django
+USER django
 
 # Install Python dependencies
 COPY requirements.txt /usr/src/app/
