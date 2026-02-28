@@ -21,8 +21,8 @@ RUN apt-get update \
 # Create non-root user for security
 # RUN groupadd -r django && useradd -r -g django django
 
-RUN addgroup -g 1000 django \
-    && adduser -D -u 1000 -G django django
+RUN groupadd --gid 1000 django \
+    && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash django
 
 # Install Python dependencies
 COPY requirements.txt /usr/src/app/
