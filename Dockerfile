@@ -23,7 +23,6 @@ RUN apt-get update \
 
 RUN addgroup -g 1000 django \
     && adduser -D -u 1000 -G django django
-USER django
 
 # Install Python dependencies
 COPY requirements.txt /usr/src/app/
@@ -40,8 +39,12 @@ RUN mkdir -p /usr/src/app/staticfiles /usr/src/app/media /usr/src/app/celerybeat
 # Make entrypoint executable
 RUN chmod +x /usr/src/app/docker/entrypoint.sh
 
+USER django
+
+
 # Expose port
 EXPOSE 8000
+
 
 # run the application with ASGI (async)
 ENTRYPOINT ["/usr/src/app/docker/entrypoint.sh"]
