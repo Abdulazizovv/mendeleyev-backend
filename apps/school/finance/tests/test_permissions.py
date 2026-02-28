@@ -64,6 +64,30 @@ class AutoApprovePermissionTest(TestCase):
             branch=self.branch,
             role=BranchRole.BRANCH_ADMIN
         )
+        # Ikkinchi filial membership: user bir nechta filialga a'zo bo'lgan holatni tekshirish uchun.
+        # (Oldingi bug: membership .first() bilan olinib, noto'g'ri filial roli tanlanib qolardi.)
+        self.other_branch = Branch.objects.create(
+            name="Other Branch",
+            type="school",
+            slug="other-branch",
+            address="Other Address"
+        )
+        self.other_branch_role = Role.objects.create(
+            branch=self.other_branch,
+            name="Other Branch Role (No Auto Approve)",
+            permissions={
+                FinancePermissions.CREATE_TRANSACTIONS: True,
+                # NO CAN_AUTO_APPROVE
+            }
+        )
+        # MUHIM: buni branch admin membership'dan keyin yaratamiz (default ordering -created_at),
+        # shunda noto'g'ri global .first() logika bo'lsa aynan shu membership tanlanib qolardi.
+        BranchMembership.objects.create(
+            user=self.branch_admin_user,
+            branch=self.other_branch,
+            role=BranchRole.OTHER,
+            role_ref=self.other_branch_role
+        )
 
         # Accountant with CAN_AUTO_APPROVE permission
         self.accountant_auto_user = User.objects.create_user(
@@ -178,6 +202,34 @@ class AutoApprovePermissionTest(TestCase):
             self.cash_register.balance,
             initial_balance + 1000000
         )
+
+    def test_branch_admin_auto_approves_with_multiple_memberships(self):
+        """User bir nechta filialga a'zo bo'lsa, auto-approve joriy branch bo'yicha ishlashi kerak."""
+        self.client.force_authenticate(user=self.branch_admin_user)
+
+        initial_balance = self.cash_register.balance
+
+        data = {
+            "cash_register": str(self.cash_register.id),
+            "transaction_type": TransactionType.INCOME,
+            "category": str(self.income_category.id),
+            "amount": 123456,
+            "payment_method": PaymentMethod.CASH,
+            "description": "Multi-membership auto approve"
+        }
+
+        response = self.client.post(
+            '/api/v1/school/finance/transactions/',
+            data,
+            format='json',
+            HTTP_X_BRANCH_ID=str(self.branch.id)
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['status'], TransactionStatus.COMPLETED)
+
+        self.cash_register.refresh_from_db()
+        self.assertEqual(self.cash_register.balance, initial_balance + 123456)
 
     def test_branch_admin_auto_approves_expense(self):
         """Branch Admin chiqim yaratganda avtomatik COMPLETED bo'lishi kerak."""

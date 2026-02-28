@@ -267,7 +267,7 @@ class BaseFinanceView:
         except Exception:
             return None
     
-    def _should_auto_approve(self):
+    def _should_auto_approve(self, branch_id=None):
         """Tranzaksiya avtomatik tasdiqlanishi kerakmi?
         
         Logika:
@@ -278,23 +278,21 @@ class BaseFinanceView:
         from .permissions import FinancePermissions
         
         # Super admin tekshiruvi
-        if self._is_super_admin():
-            # Super admin uchun permission-based
-            membership = self._get_user_membership()
-            if membership and membership.role_ref:
-                permissions = membership.role_ref.permissions or {}
-                return permissions.get(FinancePermissions.CAN_AUTO_APPROVE, False)
-            return False
+        # if self._is_super_admin():
+        #     # Super admin uchun permission-based
+        #     membership = self._get_user_membership()
+        #     if membership and membership.role_ref:
+        #         permissions = membership.role_ref.permissions or {}
+        #         return permissions.get(FinancePermissions.CAN_AUTO_APPROVE, False)
+        #     return False
         
-        # Branch admin - har doim avtomatik tasdiqlanadi
+        # Branch admin - har doim avtomatik tasdiqlanadi.
+        # MUHIM: User bir nechta filialga a'zo bo'lsa, DOIM joriy branch bo'yicha membership olinishi kerak.
         try:
-            membership = BranchMembership.objects.filter(
-                user=self.request.user,
-                deleted_at__isnull=True
-            ).first()
+            membership = self._get_user_membership(branch_id=branch_id)
             if membership and membership.role == BranchRole.BRANCH_ADMIN:
                 return True
-            
+
             # Boshqa rollar uchun permission-based
             if membership and membership.role_ref:
                 permissions = membership.role_ref.permissions or {}
@@ -538,18 +536,23 @@ class TransactionListView(generics.ListCreateAPIView, BaseFinanceView):
     
     def perform_create(self, serializer):
         """Tranzaksiya yaratish."""
+        branch = serializer.validated_data.get('branch')
+        branch_id_from_request = None
+        if not branch:
+            branch_id_from_request = self._get_branch_id()
+        branch_id_for_permissions = str(branch.id) if branch else branch_id_from_request
+
         # Agar branch berilmagan bo'lsa, requestdan olish
         if 'branch' not in serializer.validated_data or serializer.validated_data.get('branch') is None:
-            branch_id = self._get_branch_id()
-            if not branch_id:
+            if not branch_id_from_request:
                 raise serializers.ValidationError({
                     'branch': 'Branch ID topilmadi. Iltimos X-Branch-Id headerni yuboring.'
                 })
             # User role asosida status aniqlash
-            auto_approve = self._should_auto_approve()
-            serializer.save(branch_id=branch_id, auto_approve=auto_approve)
+            auto_approve = self._should_auto_approve(branch_id=branch_id_for_permissions)
+            serializer.save(branch_id=branch_id_from_request, auto_approve=auto_approve)
         else:
-            auto_approve = self._should_auto_approve()
+            auto_approve = self._should_auto_approve(branch_id=branch_id_for_permissions)
             serializer.save(auto_approve=auto_approve)
     
     def create(self, request, *args, **kwargs):
