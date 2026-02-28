@@ -18,6 +18,7 @@ from .models import (
     CashRegister,
     Transaction,
     StudentBalance,
+    StudentBalanceTransaction,
     SubscriptionPlan,
     Discount,
     Payment,
@@ -31,16 +32,19 @@ from .serializers import (
     TransactionSerializer,
     TransactionCreateSerializer,
     StudentBalanceSerializer,
+    StudentBalanceTransactionSerializer,
     SubscriptionPlanSerializer,
     DiscountSerializer,
     PaymentSerializer,
     PaymentCreateSerializer,
     StudentSubscriptionSerializer,
     StudentSubscriptionCreateSerializer,
+    StudentSubscriptionChargeSerializer,
     PaymentDueSummarySerializer,
     FinanceCategorySerializer,
     FinanceCategoryListSerializer,
 )
+from .services import charge_subscription_from_student_balance
 from .permissions import CanManageFinance, CanViewFinanceReports, CanManageCategories
 from .filters import (
     TransactionFilter,
@@ -651,6 +655,39 @@ class StudentBalanceDetailView(generics.RetrieveAPIView, BaseFinanceView):
         ).select_related('student_profile')
 
 
+class StudentBalanceTransactionListView(generics.ListAPIView, BaseFinanceView):
+    """Student balans tranzaksiyalari (audit) ro'yxati."""
+
+    permission_classes = [IsAuthenticated, CanManageFinance]
+    serializer_class = StudentBalanceTransactionSerializer
+    filter_backends = [OrderingFilter]
+    ordering_fields = ["occurred_at", "amount", "created_at"]
+    ordering = ["-occurred_at"]
+
+    @extend_schema(
+        summary="Student balans tranzaksiyalari",
+        description="Student balansidagi barcha o'zgarishlar audit ro'yxati.",
+        parameters=[
+            OpenApiParameter("branch_id", OpenApiTypes.UUID, description="Filial ID"),
+            OpenApiParameter("ordering", OpenApiTypes.STR, description="Tartiblash"),
+        ],
+    )
+    def get_queryset(self):
+        branch_id = self._get_branch_id()
+        if not branch_id:
+            return StudentBalanceTransaction.objects.none()
+
+        return (
+            StudentBalanceTransaction.objects.filter(
+                student_balance_id=self.kwargs.get("pk"),
+                student_balance__student_profile__user_branch__branch_id=branch_id,
+                deleted_at__isnull=True,
+            )
+            .select_related("student_balance", "subscription", "processed_by")
+            .order_by("-occurred_at", "-created_at")
+        )
+
+
 # ==================== Subscription Plan Views ====================
 
 class SubscriptionPlanListView(generics.ListCreateAPIView, BaseFinanceView):
@@ -1041,6 +1078,17 @@ class StudentSubscriptionListView(BaseFinanceView, generics.ListCreateAPIView):
     def post(self, request, *args, **kwargs):
         return super().post(request, *args, **kwargs)
 
+    def create(self, request, *args, **kwargs):
+        """Abonement yaratish va to'liq ma'lumot qaytarish."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+
+        instance = serializer.instance
+        response_serializer = StudentSubscriptionSerializer(instance)
+        headers = self.get_success_headers(response_serializer.data)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
 
 class StudentSubscriptionDetailView(BaseFinanceView, generics.RetrieveUpdateDestroyAPIView):
     """O'quvchi abonementi detail API."""
@@ -1082,6 +1130,73 @@ class StudentSubscriptionDetailView(BaseFinanceView, generics.RetrieveUpdateDest
     )
     def delete(self, request, *args, **kwargs):
         return super().delete(request, *args, **kwargs)
+
+
+class StudentSubscriptionChargeView(BaseFinanceView, generics.GenericAPIView):
+    """Abonement uchun student balansdan pul yechish (manual trigger)."""
+
+    permission_classes = [IsAuthenticated, CanManageFinance]
+    serializer_class = StudentSubscriptionChargeSerializer
+    lookup_field = "id"
+
+    @extend_schema(
+        summary="Abonement uchun balansdan yechish",
+        description=(
+            "Joriy abonement uchun student balansdan pul yechadi. "
+            "Agar balans yetarli bo'lmasa, summa abonement qarziga yoziladi va next_payment_date yangilanadi."
+        ),
+        parameters=[OpenApiParameter("branch_id", OpenApiTypes.UUID, description="Filial ID")],
+    )
+    def post(self, request, *args, **kwargs):
+        branch_id = self._get_branch_id()
+        if not branch_id:
+            return Response({"detail": "Branch ID talab qilinadi."}, status=status.HTTP_400_BAD_REQUEST)
+
+        subscription = StudentSubscription.objects.filter(
+            id=kwargs.get("id"),
+            branch_id=branch_id,
+            deleted_at__isnull=True,
+        ).select_related("student_profile", "subscription_plan", "branch", "discount").first()
+
+        if not subscription:
+            return Response({"detail": "Abonement topilmadi."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        result = charge_subscription_from_student_balance(
+            subscription=subscription,
+            processed_by=request.user,
+            force=serializer.validated_data.get("force", False),
+        )
+
+        subscription.refresh_from_db()
+        student_balance = StudentBalance.objects.filter(student_profile=subscription.student_profile).first()
+
+        return Response(
+            {
+                "result": {
+                    "ok": result.ok,
+                    "charged": result.charged,
+                    "amount": result.amount,
+                    "reason": result.reason,
+                    "message": result.message,
+                    "debt_added": result.debt_added,
+                },
+                "subscription": {
+                    "id": str(subscription.id),
+                    "student_profile": str(subscription.student_profile_id),
+                    "subscription_plan": str(subscription.subscription_plan_id),
+                    "next_payment_date": subscription.next_payment_date.isoformat() if subscription.next_payment_date else None,
+                    "last_payment_date": subscription.last_payment_date.isoformat() if subscription.last_payment_date else None,
+                    "total_debt": int(subscription.total_debt),
+                },
+                "student_balance": {
+                    "id": str(student_balance.id) if student_balance else None,
+                    "balance": int(student_balance.balance) if student_balance else 0,
+                },
+            }
+        )
 
 
 class PaymentDueSummaryView(BaseFinanceView, generics.GenericAPIView):

@@ -15,6 +15,7 @@ RUN apt-get update \
         build-essential \
         libpq-dev \
         curl \
+        gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
@@ -34,10 +35,6 @@ RUN mkdir -p /usr/src/app/staticfiles /usr/src/app/media /usr/src/app/celerybeat
 
 # Make entrypoint executable
 RUN chmod +x /usr/src/app/docker/entrypoint.sh
-
-# Switch to non-root user (PRODUCTION)
-# Comment this line for development if you get permission errors
-USER django
 
 # Expose port
 EXPOSE 8000

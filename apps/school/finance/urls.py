@@ -22,6 +22,7 @@ urlpatterns = [
     # Student Balances
     path('student-balances/', views.StudentBalanceListView.as_view(), name='student-balance-list'),
     path('student-balances/<uuid:pk>/', views.StudentBalanceDetailView.as_view(), name='student-balance-detail'),
+    path('student-balances/<uuid:pk>/transactions/', views.StudentBalanceTransactionListView.as_view(), name='student-balance-transactions'),
     
     # Subscription Plans
     path('subscription-plans/', views.SubscriptionPlanListView.as_view(), name='subscription-plan-list'),
@@ -38,6 +39,7 @@ urlpatterns = [
     # Student Subscriptions
     path('student-subscriptions/', views.StudentSubscriptionListView.as_view(), name='student-subscription-list'),
     path('student-subscriptions/<uuid:id>/', views.StudentSubscriptionDetailView.as_view(), name='student-subscription-detail'),
+    path('student-subscriptions/<uuid:id>/charge/', views.StudentSubscriptionChargeView.as_view(), name='student-subscription-charge'),
     
     # Payment Due Summary
     path('payment-due-summary/', views.PaymentDueSummaryView.as_view(), name='payment-due-summary'),
@@ -50,4 +52,3 @@ urlpatterns = [
     path('export/payments/', views.ExportPaymentsView.as_view(), name='export-payments'),
     path('export/task-status/<str:task_id>/', views.ExportTaskStatusView.as_view(), name='export-task-status'),
 ]
-

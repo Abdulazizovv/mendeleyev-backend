@@ -170,7 +170,7 @@ services:
     networks:
       - internal
       - nginx_network
-    entrypoint: ["celery", "-A", "core", "worker", "-l", "info", "--concurrency=2"]
+    command: ["celery", "-A", "core", "worker", "-l", "info", "--concurrency=2"]
     # Security hardening
     security_opt:
       - no-new-privileges:true
@@ -215,7 +215,7 @@ services:
         condition: service_healthy
     networks:
       - internal
-    entrypoint: ["celery", "-A", "core", "beat", "-l", "info", "--schedule=/usr/src/app/celerybeat/celerybeat-schedule"]
+    command: ["celery", "-A", "core", "beat", "-l", "info", "--schedule=/usr/src/app/celerybeat/celerybeat-schedule"]
     # Security hardening
     security_opt:
       - no-new-privileges:true

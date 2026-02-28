@@ -374,6 +374,13 @@ CELERY_BEAT_SCHEDULE = {
             'expires': 3600,  # 1 soat ichida bajarilmasa bekor qilinsin
         }
     },
+    'finance-charge-due-subscriptions': {
+        'task': 'finance.charge_due_subscriptions',
+        'schedule': crontab(hour=0, minute=5),  # Har kuni soat 00:05 da
+        'options': {
+            'expires': 3600,
+        }
+    },
 }
 
 # OTP settings (Redis-backed)

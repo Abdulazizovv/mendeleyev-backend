@@ -31,15 +31,9 @@ class TransactionFilter(django_filters.FilterSet):
     created_from = django_filters.DateFilter(field_name='created_at', lookup_expr='gte')
     created_to = django_filters.DateFilter(field_name='created_at', lookup_expr='lte')
     
-    # Multi-value filters
-    transaction_type = django_filters.MultipleChoiceFilter(
-        choices=TransactionType.choices,
-        lookup_expr='in'
-    )
-    status = django_filters.MultipleChoiceFilter(
-        choices=TransactionStatus.choices,
-        lookup_expr='in'
-    )
+    # Multi-value filters (single value ham ishlashi uchun custom method).
+    transaction_type = django_filters.CharFilter(method="filter_transaction_type")
+    status = django_filters.CharFilter(method="filter_status")
     
     # Related object filters
     cash_register = django_filters.UUIDFilter(field_name='cash_register_id')
@@ -71,6 +65,36 @@ class TransactionFilter(django_filters.FilterSet):
             Q(student_profile__user_branch__user__first_name__icontains=value) |
             Q(student_profile__user_branch__user__last_name__icontains=value)
         ).distinct()
+
+    def _get_multi_values(self, param_name: str):
+        """Query paramni list ko'rinishida olish (takrorlangan param yoki CSV)."""
+        values = []
+        if hasattr(self.data, "getlist"):
+            values = [v for v in self.data.getlist(param_name) if v]
+        else:
+            raw = self.data.get(param_name)
+            if raw:
+                values = [raw]
+
+        normalized = []
+        for v in values:
+            if isinstance(v, str) and "," in v:
+                normalized.extend([p.strip() for p in v.split(",") if p.strip()])
+            else:
+                normalized.append(v)
+        return normalized
+
+    def filter_transaction_type(self, queryset, name, value):
+        values = self._get_multi_values("transaction_type")
+        if not values and value:
+            values = [value]
+        return queryset.filter(transaction_type__in=values) if values else queryset
+
+    def filter_status(self, queryset, name, value):
+        values = self._get_multi_values("status")
+        if not values and value:
+            values = [value]
+        return queryset.filter(status__in=values) if values else queryset
 
 
 class PaymentFilter(django_filters.FilterSet):

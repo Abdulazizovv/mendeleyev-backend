@@ -37,32 +37,32 @@ logs:
 	docker compose logs -f --tail=200
 
 shell:
-	docker compose exec mendeleyev_django python manage.py shell
+	docker compose exec -u django mendeleyev_django python manage.py shell
 
 migrate:
-	docker compose exec mendeleyev_django python manage.py migrate
+	docker compose exec -u django mendeleyev_django python manage.py migrate
 
 createsuperuser:
-	docker compose exec mendeleyev_django python manage.py createsuperuser
+	docker compose exec -u django mendeleyev_django python manage.py createsuperuser
 
 collectstatic:
-	docker compose exec mendeleyev_django python manage.py collectstatic --noinput
+	docker compose exec -u django mendeleyev_django python manage.py collectstatic --noinput
 
 test:
 	# Explicit test labels to avoid discovery import ambiguity
-	docker compose exec mendeleyev_django python manage.py test auth.users.tests auth.profiles.tests apps.branch.tests.test_membership apps.branch.tests.test_managed_branches apps.botapp.tests -v 2
+	docker compose exec -u django mendeleyev_django python manage.py test auth.users.tests auth.profiles.tests apps.branch.tests.test_membership apps.branch.tests.test_managed_branches apps.botapp.tests -v 2 --keepdb --noinput
 
 lint:
-	- docker compose exec mendeleyev_django flake8 || true
+	- docker compose exec -u django mendeleyev_django flake8 || true
 
 setwebhook:
-	docker compose exec mendeleyev_django python manage.py setwebhook --drop-pending
+	docker compose exec -u django mendeleyev_django python manage.py setwebhook --drop-pending
 
 deletewebhook:
-	docker compose exec mendeleyev_django python manage.py deletewebhook
+	docker compose exec -u django mendeleyev_django python manage.py deletewebhook
 
 webhookinfo:
-	docker compose exec mendeleyev_django python manage.py webhookinfo
+	docker compose exec -u django mendeleyev_django python manage.py webhookinfo
 
 celery:
 	docker compose up -d mendeleyev_celery

@@ -6,7 +6,7 @@ from django.test import TestCase
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 from rest_framework import status
-from apps.branch.models import Branch, BranchMembership, BranchRole
+from apps.branch.models import Branch, BranchMembership, BranchRole, Role
 from apps.school.finance.models import (
     CashRegister,
     Transaction,
@@ -15,6 +15,7 @@ from apps.school.finance.models import (
     FinanceCategory,
     PaymentMethod,
 )
+from apps.school.finance.permissions import FinancePermissions
 
 User = get_user_model()
 
@@ -67,10 +68,18 @@ class TransactionAPITestCase(TestCase):
             first_name="Accountant",
             last_name="User"
         )
+        self.accountant_role = Role.objects.create(
+            branch=self.branch,
+            name="Accountant",
+            permissions={
+                FinancePermissions.CREATE_TRANSACTIONS: True,
+            },
+        )
         self.accountant_membership = BranchMembership.objects.create(
             branch=self.branch,
             user=self.accountant_user,
-            role=BranchRole.OTHER
+            role=BranchRole.OTHER,
+            role_ref=self.accountant_role,
         )
         
         # Kassa yaratish

@@ -419,33 +419,219 @@ class StudentBalance(BaseModel):
     def __str__(self):
         return f"{self.student_profile} - {self.balance} so'm"
     
-    def add_amount(self, amount: int):
-        """Balansga summa qo'shish (atomic operation)."""
+    def add_amount(
+        self,
+        amount: int,
+        *,
+        reason: str | None = None,
+        processed_by=None,
+        subscription=None,
+        reference: str = "",
+        description: str = "",
+        metadata: dict | None = None,
+        occurred_at=None,
+    ):
+        """Balansga summa qo'shish (atomic operation + audit)."""
+        from django.db import transaction
         from django.db.models import F
-        StudentBalance.objects.filter(id=self.id).update(
-            balance=F('balance') + amount,
-            updated_at=timezone.now()
-        )
+
+        if amount <= 0:
+            raise ValueError("Amount musbat bo'lishi kerak")
+
+        if metadata is None:
+            metadata = {}
+
+        occurred_at = occurred_at or timezone.now()
+
+        with transaction.atomic():
+            locked = StudentBalance.objects.select_for_update().get(id=self.id)
+            previous_balance = locked.balance
+            new_balance = previous_balance + amount
+
+            StudentBalance.objects.filter(id=self.id).update(
+                balance=F('balance') + amount,
+                updated_at=timezone.now(),
+            )
+
+            StudentBalanceTransaction.objects.create(
+                student_balance_id=self.id,
+                subscription=subscription,
+                transaction_type=StudentBalanceTransactionType.CREDIT,
+                status=StudentBalanceTransactionStatus.COMPLETED,
+                reason=reason or StudentBalanceTransactionReason.OTHER,
+                amount=amount,
+                previous_balance=previous_balance,
+                new_balance=new_balance,
+                reference=reference,
+                description=description,
+                metadata=metadata,
+                processed_by=processed_by,
+                occurred_at=occurred_at,
+                created_by=processed_by,
+                updated_by=processed_by,
+            )
+
         self.refresh_from_db()
     
-    def subtract_amount(self, amount: int):
-        """Balansdan summa ayirish (atomic operation with lock)."""
+    def subtract_amount(
+        self,
+        amount: int,
+        *,
+        reason: str | None = None,
+        processed_by=None,
+        subscription=None,
+        reference: str = "",
+        description: str = "",
+        metadata: dict | None = None,
+        occurred_at=None,
+    ):
+        """Balansdan summa ayirish (atomic operation with lock + audit)."""
         from django.db.models import F
         from django.db import transaction
-        
+
+        if amount <= 0:
+            raise ValueError("Amount musbat bo'lishi kerak")
+
+        if metadata is None:
+            metadata = {}
+
+        occurred_at = occurred_at or timezone.now()
+
         with transaction.atomic():
-            # Row-level lock bilan balansni olish va tekshirish
-            balance = StudentBalance.objects.select_for_update().get(id=self.id)
-            if balance.balance < amount:
+            locked = StudentBalance.objects.select_for_update().get(id=self.id)
+            previous_balance = locked.balance
+            if previous_balance < amount:
                 raise ValueError("Balans yetarli emas")
-            
-            # Atomic yangilash
+
+            new_balance = previous_balance - amount
+
             StudentBalance.objects.filter(id=self.id).update(
                 balance=F('balance') - amount,
-                updated_at=timezone.now()
+                updated_at=timezone.now(),
             )
-        
+
+            StudentBalanceTransaction.objects.create(
+                student_balance_id=self.id,
+                subscription=subscription,
+                transaction_type=StudentBalanceTransactionType.DEBIT,
+                status=StudentBalanceTransactionStatus.COMPLETED,
+                reason=reason or StudentBalanceTransactionReason.OTHER,
+                amount=amount,
+                previous_balance=previous_balance,
+                new_balance=new_balance,
+                reference=reference,
+                description=description,
+                metadata=metadata,
+                processed_by=processed_by,
+                occurred_at=occurred_at,
+                created_by=processed_by,
+                updated_by=processed_by,
+            )
+
         self.refresh_from_db()
+
+
+class StudentBalanceTransactionType(models.TextChoices):
+    CREDIT = "credit", "Kirim"
+    DEBIT = "debit", "Chiqim"
+
+
+class StudentBalanceTransactionStatus(models.TextChoices):
+    COMPLETED = "completed", "Bajarilgan"
+    FAILED = "failed", "Muvaffaqiyatsiz"
+
+
+class StudentBalanceTransactionReason(models.TextChoices):
+    SUBSCRIPTION_CHARGE = "subscription_charge", "Abonement yechimi"
+    PAYMENT_TOPUP = "payment_topup", "To'lov (balans to'ldirish)"
+    MANUAL_ADJUSTMENT = "manual_adjustment", "Qo'lda o'zgartirish"
+    OTHER = "other", "Boshqa"
+
+
+class StudentBalanceTransaction(BaseModel):
+    """Student balans o'zgarishlari uchun audit (ledger) modeli."""
+
+    student_balance = models.ForeignKey(
+        StudentBalance,
+        on_delete=models.CASCADE,
+        related_name="transactions",
+        verbose_name="Student balansi",
+    )
+    subscription = models.ForeignKey(
+        "StudentSubscription",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="balance_transactions",
+        verbose_name="Abonement",
+    )
+
+    transaction_type = models.CharField(
+        max_length=10,
+        choices=StudentBalanceTransactionType.choices,
+        verbose_name="Tranzaksiya turi",
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=StudentBalanceTransactionStatus.choices,
+        default=StudentBalanceTransactionStatus.COMPLETED,
+        verbose_name="Holat",
+    )
+    reason = models.CharField(
+        max_length=50,
+        choices=StudentBalanceTransactionReason.choices,
+        default=StudentBalanceTransactionReason.OTHER,
+        verbose_name="Sabab",
+    )
+
+    amount = models.BigIntegerField(
+        validators=[MinValueValidator(1)],
+        verbose_name="Summa",
+        help_text="Musbat summa (so'm)",
+    )
+    previous_balance = models.BigIntegerField(verbose_name="Oldingi balans")
+    new_balance = models.BigIntegerField(verbose_name="Yangi balans")
+
+    reference = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="Reference",
+    )
+    description = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Tavsif",
+    )
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Qo'shimcha ma'lumotlar",
+    )
+    processed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="processed_student_balance_transactions",
+        verbose_name="Kim tomonidan",
+    )
+    occurred_at = models.DateTimeField(
+        default=timezone.now,
+        db_index=True,
+        verbose_name="Sodir bo'lgan vaqt",
+    )
+
+    class Meta:
+        verbose_name = "Student balans tranzaksiyasi"
+        verbose_name_plural = "Student balans tranzaksiyalari"
+        ordering = ["-occurred_at", "-created_at"]
+        indexes = [
+            models.Index(fields=["student_balance", "-occurred_at"]),
+            models.Index(fields=["subscription", "-occurred_at"]),
+            models.Index(fields=["transaction_type", "status"]),
+            models.Index(fields=["reason"]),
+        ]
 
 class SubscriptionPlan(BaseModel):
     """Abonement tarifi.
@@ -997,4 +1183,3 @@ class StudentSubscription(BaseModel):
             updated_at=timezone.now()
         )
         self.refresh_from_db()
-

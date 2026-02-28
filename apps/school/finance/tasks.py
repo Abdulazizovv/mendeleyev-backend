@@ -492,3 +492,76 @@ def export_payments_to_excel(self, branch_id, filters=None, user_id=None):
             'success': False,
             'error': f'Export xatolik: {str(e)}'
         }
+
+
+@shared_task(bind=True, name="finance.charge_due_subscriptions")
+def charge_due_subscriptions(self, branch_id=None, limit=None):
+    """
+    next_payment_date kelgan (yoki o'tib ketgan) abonementlar uchun:
+    - student balansda yetarli pul bo'lsa: balansdan yechadi
+    - yetarli bo'lmasa: abonement total_debt ga yozadi
+    va next_payment_date ni keyingi davrga suradi.
+
+    Args:
+        branch_id: ixtiyoriy, faqat bitta filialni qayta ishlash uchun
+        limit: ixtiyoriy, maksimal abonement soni
+    """
+    from apps.school.finance.models import StudentSubscription
+    from apps.school.finance.services import charge_subscription_from_student_balance
+
+    now = timezone.now()
+    today = now.date()
+
+    qs = StudentSubscription.objects.filter(
+        is_active=True,
+        deleted_at__isnull=True,
+        next_payment_date__lte=today,
+        student_profile__deleted_at__isnull=True,
+    ).select_related("student_profile", "subscription_plan", "branch", "discount")
+
+    if branch_id:
+        qs = qs.filter(branch_id=branch_id)
+
+    if limit:
+        qs = qs[: int(limit)]
+
+    charged_count = 0
+    debt_added_count = 0
+    skipped_count = 0
+    error_count = 0
+    total_amount_charged = 0
+    total_debt_added = 0
+
+    for subscription in qs.iterator(chunk_size=200):
+        try:
+            result = charge_subscription_from_student_balance(subscription=subscription, processed_by=None, force=False)
+            if result.charged:
+                charged_count += 1
+                total_amount_charged += int(result.amount)
+            elif result.debt_added:
+                debt_added_count += 1
+                total_debt_added += int(result.debt_added)
+            else:
+                skipped_count += 1
+        except Exception as e:
+            error_count += 1
+            logger.exception(
+                "charge_due_subscriptions error: subscription_id=%s branch_id=%s err=%s",
+                getattr(subscription, "id", None),
+                getattr(subscription, "branch_id", None),
+                str(e),
+            )
+
+    summary = {
+        "ok": error_count == 0,
+        "as_of": now.isoformat(),
+        "branch_id": str(branch_id) if branch_id else None,
+        "charged_count": charged_count,
+        "debt_added_count": debt_added_count,
+        "skipped_count": skipped_count,
+        "error_count": error_count,
+        "total_amount_charged": total_amount_charged,
+        "total_debt_added": total_debt_added,
+    }
+    logger.info("charge_due_subscriptions summary: %s", summary)
+    return summary

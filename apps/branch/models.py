@@ -589,8 +589,13 @@ class BranchMembership(BaseModel):
             models.Index(fields=["termination_date"]),
             models.Index(fields=["employment_type"]),
         ]
-        # Remove unique_together to allow soft delete without conflicts
-        # Business logic should prevent duplicate active memberships
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "branch"],
+                condition=models.Q(deleted_at__isnull=True),
+                name="uniq_branchmembership_active_user_branch",
+            )
+        ]
 
     def __str__(self) -> str:
         return f"{self.user.phone_number} @ {self.branch.name} ({self.get_role_display()})"
@@ -968,4 +973,3 @@ class SalaryPayment(BaseModel):
     def __str__(self) -> str:
         user_name = self.membership.user.get_full_name() or self.membership.user.phone_number
         return f"{user_name} - {self.month.strftime('%Y-%m')} - {self.amount:_} so'm"
-

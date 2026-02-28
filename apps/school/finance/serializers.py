@@ -8,6 +8,8 @@ from .models import (
     CashRegister,
     Transaction,
     StudentBalance,
+    StudentBalanceTransaction,
+    StudentBalanceTransactionReason,
     SubscriptionPlan,
     Discount,
     Payment,
@@ -367,6 +369,52 @@ class StudentBalanceSerializer(serializers.ModelSerializer):
     def get_student_personal_number(self, obj):
         """O'quvchi shaxsiy raqamini olish."""
         return obj.student_profile.personal_number
+
+
+class StudentBalanceTransactionSerializer(serializers.ModelSerializer):
+    """Student balans tranzaksiyalari (audit) serializer."""
+
+    student_profile_id = serializers.UUIDField(source="student_balance.student_profile_id", read_only=True)
+    transaction_type_display = serializers.CharField(source="get_transaction_type_display", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    reason_display = serializers.CharField(source="get_reason_display", read_only=True)
+    processed_by_phone = serializers.CharField(source="processed_by.phone_number", read_only=True)
+
+    class Meta:
+        model = StudentBalanceTransaction
+        fields = [
+            "id",
+            "student_balance",
+            "student_profile_id",
+            "subscription",
+            "transaction_type",
+            "transaction_type_display",
+            "status",
+            "status_display",
+            "reason",
+            "reason_display",
+            "amount",
+            "previous_balance",
+            "new_balance",
+            "reference",
+            "description",
+            "metadata",
+            "processed_by",
+            "processed_by_phone",
+            "occurred_at",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class StudentSubscriptionChargeSerializer(serializers.Serializer):
+    """Abonement uchun balansdan yechish (manual) serializer."""
+
+    force = serializers.BooleanField(
+        default=False,
+        required=False,
+        help_text="Agar true bo'lsa, next_payment_date kelmagan bo'lsa ham charge qiladi",
+    )
 
 
 class SubscriptionPlanSerializer(serializers.ModelSerializer):
@@ -731,7 +779,19 @@ class PaymentCreateSerializer(serializers.ModelSerializer):
         payment = super().create(validated_data)
         
         # O'quvchi balansini yangilash (atomic F() expression bilan)
-        student_balance.add_amount(final_amount)
+        request = self.context.get("request")
+        processed_by = getattr(request, "user", None) if request else None
+        student_balance.add_amount(
+            final_amount,
+            reason=StudentBalanceTransactionReason.PAYMENT_TOPUP,
+            processed_by=processed_by,
+            reference=str(transaction_obj.id),
+            description="Payment orqali balans to'ldirildi",
+            metadata={
+                "payment_id": str(payment.id),
+                "transaction_id": str(transaction_obj.id),
+            },
+        )
         
         return payment
 
@@ -848,4 +908,3 @@ class PaymentDueSummarySerializer(serializers.Serializer):
     # Holat
     is_expired = serializers.BooleanField(help_text="Abonement tugaganmi?")
     is_overdue = serializers.BooleanField(help_text="To'lov kechiktirganmi?")
-

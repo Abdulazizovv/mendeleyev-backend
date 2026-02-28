@@ -8,6 +8,7 @@ from .models import (
     CashRegister,
     Transaction,
     StudentBalance,
+    StudentBalanceTransaction,
     SubscriptionPlan,
     Discount,
     Payment,
@@ -318,6 +319,60 @@ class StudentBalanceAdmin(admin.ModelAdmin):
     balance_display.short_description = 'Balans'
 
 
+@admin.register(StudentBalanceTransaction)
+class StudentBalanceTransactionAdmin(admin.ModelAdmin):
+    """Student balans tranzaksiyalari admin."""
+
+    list_display = [
+        "occurred_at",
+        "student_display",
+        "transaction_type",
+        "status",
+        "reason",
+        "amount_display",
+        "previous_balance",
+        "new_balance",
+        "processed_by",
+    ]
+    list_filter = ["transaction_type", "status", "reason", "created_at"]
+    search_fields = [
+        "student_balance__student_profile__personal_number",
+        "reference",
+        "description",
+    ]
+    autocomplete_fields = ["student_balance", "processed_by"]
+    readonly_fields = [
+        "id",
+        "created_at",
+        "updated_at",
+        "occurred_at",
+        "previous_balance",
+        "new_balance",
+    ]
+    date_hierarchy = "occurred_at"
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.select_related(
+            "student_balance",
+            "student_balance__student_profile",
+            "processed_by",
+            "subscription",
+        )
+
+    def student_display(self, obj):
+        if obj.student_balance and obj.student_balance.student_profile:
+            return obj.student_balance.student_profile.full_name
+        return "-"
+
+    student_display.short_description = "Student"
+
+    def amount_display(self, obj):
+        return f"{obj.amount:,.0f} so'm"
+
+    amount_display.short_description = "Summa"
+
+
 @admin.register(SubscriptionPlan)
 class SubscriptionPlanAdmin(admin.ModelAdmin):
     """Abonement tarifi admin."""
@@ -597,4 +652,3 @@ class PaymentAdmin(admin.ModelAdmin):
         """Davr ko'rinishi."""
         return obj.get_period_display()
     period_display.short_description = 'Davr'
-
