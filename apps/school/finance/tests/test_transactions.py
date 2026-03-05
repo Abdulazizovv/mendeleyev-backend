@@ -400,3 +400,49 @@ class TransactionAPITestCase(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['count'], 2)
+
+    def test_super_admin_can_filter_by_branch_id_and_order_by_created_at(self):
+        """Regression: docs use `branch_id` query param and latest created should be orderable."""
+        self.client.force_authenticate(user=self.super_admin)
+
+        other_branch = Branch.objects.create(
+            name="Other Branch",
+            phone_number="+998901234568",
+            address="Other address",
+        )
+        other_cash = CashRegister.objects.create(branch=other_branch, name="Other Kassa", balance=1000, is_active=True)
+        other_cat = FinanceCategory.objects.create(branch=other_branch, type="income", name="Other income", is_active=True)
+        Transaction.objects.create(
+            branch=other_branch,
+            cash_register=other_cash,
+            transaction_type=TransactionType.INCOME,
+            category=other_cat,
+            amount=100,
+            status=TransactionStatus.COMPLETED,
+        )
+
+        t1 = Transaction.objects.create(
+            branch=self.branch,
+            cash_register=self.cash_register,
+            transaction_type=TransactionType.INCOME,
+            category=self.income_category,
+            amount=111,
+            status=TransactionStatus.COMPLETED,
+        )
+        t2 = Transaction.objects.create(
+            branch=self.branch,
+            cash_register=self.cash_register,
+            transaction_type=TransactionType.INCOME,
+            category=self.income_category,
+            amount=222,
+            status=TransactionStatus.COMPLETED,
+        )
+
+        response = self.client.get(
+            f"/api/v1/school/finance/transactions/?branch_id={self.branch.id}&ordering=-created_at"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 2)
+        returned_ids = [item["id"] for item in response.data["results"]]
+        self.assertEqual(returned_ids[0], str(t2.id))
+        self.assertEqual(returned_ids[1], str(t1.id))

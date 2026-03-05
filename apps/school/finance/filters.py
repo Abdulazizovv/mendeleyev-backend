@@ -40,7 +40,9 @@ class TransactionFilter(django_filters.FilterSet):
     category = django_filters.UUIDFilter(field_name='category_id')
     student_profile = django_filters.UUIDFilter(field_name='student_profile_id')
     employee_membership = django_filters.UUIDFilter(field_name='employee_membership_id')
+    # Accept both `branch` and `branch_id` query params (docs use `branch_id`)
     branch = django_filters.UUIDFilter(field_name='branch_id')
+    branch_id = django_filters.UUIDFilter(field_name='branch_id')
     
     # Search filter
     search = django_filters.CharFilter(method='filter_search')

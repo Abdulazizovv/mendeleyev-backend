@@ -14,6 +14,27 @@ from openpyxl.utils import get_column_letter
 
 logger = logging.getLogger(__name__)
 
+def _fmt_excel_dt(value):
+    """Format datetimes for Excel export as local time, without tzinfo (Excel-friendly)."""
+    if not value:
+        return ""
+    try:
+        if timezone.is_aware(value):
+            value = timezone.localtime(value)
+    except Exception:
+        pass
+
+    try:
+        if getattr(value, "tzinfo", None) is not None:
+            value = value.replace(tzinfo=None)
+    except Exception:
+        pass
+
+    try:
+        return value.strftime("%d.%m.%Y %H:%M")
+    except Exception:
+        return str(value)
+
 
 @shared_task(bind=True, name='finance.export_transactions_to_excel')
 def export_transactions_to_excel(self, branch_id, filters=None, user_id=None):
@@ -57,6 +78,7 @@ def export_transactions_to_excel(self, branch_id, filters=None, user_id=None):
             'branch',
             'cash_register',
             'category',
+            'payment',
             'student_profile',
             'student_profile__user_branch__user',
             'employee_membership',
@@ -134,6 +156,7 @@ def export_transactions_to_excel(self, branch_id, filters=None, user_id=None):
             'Tavsif',
             'Referens raqam',
             'Yaratilgan',
+            'To\'lov sanasi',
         ]
         
         # Header styling
@@ -162,7 +185,9 @@ def export_transactions_to_excel(self, branch_id, filters=None, user_id=None):
             ws.cell(row=row_num, column=1, value=row_num - 1).border = border
             
             # 2. Sana
-            date_value = transaction.transaction_date.strftime('%d.%m.%Y %H:%M') if transaction.transaction_date else ''
+            # Import qilingan ma'lumotlarda `transaction_date` ko'pincha noto'g'ri bo'ladi;
+            # Excel'da ko'rsatiladigan vaqtni `created_at` dan olamiz.
+            date_value = _fmt_excel_dt(transaction.created_at)
             ws.cell(row=row_num, column=2, value=date_value).border = border
             
             # 3. Turi
@@ -222,8 +247,16 @@ def export_transactions_to_excel(self, branch_id, filters=None, user_id=None):
             ws.cell(row=row_num, column=12, value=reference).border = border
             
             # 13. Yaratilgan
-            created_date = transaction.created_at.strftime('%d.%m.%Y %H:%M') if transaction.created_at else ''
+            created_date = _fmt_excel_dt(transaction.created_at)
             ws.cell(row=row_num, column=13, value=created_date).border = border
+
+            # 14. To'lov sanasi (agar tranzaksiya Payment bilan bog'langan bo'lsa)
+            payment_date = ""
+            try:
+                payment_date = _fmt_excel_dt(transaction.payment.payment_date)
+            except Exception:
+                payment_date = ""
+            ws.cell(row=row_num, column=14, value=payment_date).border = border
         
         # Ustunlar kengligini avtomatik moslash
         column_widths = {
@@ -240,6 +273,7 @@ def export_transactions_to_excel(self, branch_id, filters=None, user_id=None):
             11: 35, # Tavsif
             12: 20, # Referens
             13: 18, # Yaratilgan
+            14: 18, # To'lov sanasi
         }
         
         for col_num, width in column_widths.items():

@@ -253,6 +253,9 @@ class ExportFunctionalityTest(TestCase):
     def test_export_task_creates_excel_file(self):
         """Export task Excel fayl yaratishi kerak (integration test)."""
         from apps.school.finance.tasks import export_transactions_to_excel
+        from django.conf import settings
+        import os
+        from openpyxl import load_workbook
 
         # Task ni bevosita chaqirish (Celery eager mode)
         result = export_transactions_to_excel(
@@ -269,6 +272,14 @@ class ExportFunctionalityTest(TestCase):
         self.assertIn('filename', result)
         self.assertIn('records_count', result)
         self.assertEqual(result['records_count'], 5)  # 5 ta income transaction
+
+        # Excel headerlar tekshirish (yangi "To'lov sanasi" ustuni bor bo'lishi kerak)
+        file_path = os.path.join(settings.MEDIA_ROOT, result["file_path"])
+        self.assertTrue(os.path.exists(file_path))
+        wb = load_workbook(file_path)
+        ws = wb.active
+        headers = [cell.value for cell in ws[1]]
+        self.assertIn("To'lov sanasi", headers)
 
     def test_export_task_with_no_records(self):
         """Export task ma'lumot yo'q bo'lsa xatolik qaytarishi kerak."""
