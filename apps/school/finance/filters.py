@@ -246,10 +246,10 @@ class FinanceCategoryFilter(django_filters.FilterSet):
         return queryset.filter(subcategories__isnull=True)
     
     def filter_search(self, queryset, name, value):
-        """Search by name, code, or description."""
+        """Search by name, type, or description."""
         return queryset.filter(
             Q(name__icontains=value) |
-            Q(code__icontains=value) |
+            Q(type__icontains=value) |
             Q(description__icontains=value)
         ).distinct()
 

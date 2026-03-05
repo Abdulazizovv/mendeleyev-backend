@@ -316,10 +316,9 @@ class FinanceCategoryListCreateView(BaseFinanceView, generics.ListCreateAPIView)
     
     permission_classes = [IsAuthenticated, CanManageFinance]
     serializer_class = FinanceCategorySerializer
-    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_class = FinanceCategoryFilter
-    search_fields = ['name', 'code', 'description']
-    ordering_fields = ['name', 'code', 'created_at']
+    ordering_fields = ['name', 'type', 'created_at']
     ordering = ['type', 'name']
     
     def get_queryset(self):

@@ -582,7 +582,7 @@ class StaffViewSet(viewsets.ModelViewSet):
 	permission_classes = [IsAuthenticated, HasBranchRole]
 	filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
 	filterset_fields = ['branch', 'role_ref', 'employment_type']
-	search_fields = ['user__first_name', 'user__last_name', 'user__phone', 'passport_serial', 'passport_number']
+	search_fields = ['user__first_name', 'user__last_name', 'user__phone_number', 'passport_serial', 'passport_number']
 	ordering_fields = ['hire_date', 'monthly_salary', 'balance', 'created_at']
 	ordering = ['-hire_date']
 	
@@ -640,7 +640,11 @@ class StaffViewSet(viewsets.ModelViewSet):
 		responses={201: StaffDetailSerializer},
 	)
 	def create(self, request, *args, **kwargs):
-		return super().create(request, *args, **kwargs)
+		serializer = self.get_serializer(data=request.data)
+		serializer.is_valid(raise_exception=True)
+		membership = serializer.save()
+		output_serializer = StaffDetailSerializer(membership, context=self.get_serializer_context())
+		return Response(output_serializer.data, status=status.HTTP_201_CREATED)
 	
 	@extend_schema(
 		summary="Xodim to'liq ma'lumotlari",
