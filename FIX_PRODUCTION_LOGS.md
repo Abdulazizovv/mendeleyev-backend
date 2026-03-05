@@ -12,7 +12,11 @@ This causes:
 - Celery Beat scheduler to fail
 
 ## Solution
-Added `logs_volume` to docker-compose.yml for proper log file permissions.
+This error happens when the container runs as the non-root `django` user while `/usr/src/app/logs` is a Docker volume (or bind mount) owned by `root`, so the process can’t create/write `app.log`.
+
+Fix is two parts:
+1) Start the container as `root` and let `docker/entrypoint.sh` `chown` the mounted volumes, then drop privileges to `django` via `gosu`.
+2) Ensure the services that run the entrypoint have `CAP_CHOWN` (`cap_add: CHOWN`) so the permission fix actually works even with `cap_drop: ALL`.
 
 ## Deployment Steps (Run on Production Server)
 
@@ -61,11 +65,8 @@ docker compose logs mendeleyev_django --tail 50
 ```
 
 ## What Changed
-- Added `logs_volume:/usr/src/app/logs` mount to:
-  - mendeleyev_django service
-  - mendeleyev_celery service
-  - mendeleyev_celery_beat service
-- Created new named volume `logs_volume` for persistent log storage
+- `Dockerfile`: removed `USER django` so the entrypoint runs as `root` first and can fix mounted volume permissions, then drops to `django`.
+- `docker-compose.yml`: added `cap_add: CHOWN` to `mendeleyev_celery` and `mendeleyev_celery_beat` (Django already had it).
 
 ## Rollback (if needed)
 ```bash

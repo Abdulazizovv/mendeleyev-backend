@@ -179,6 +179,7 @@ services:
     cap_add:
       - SETGID
       - SETUID
+      - CHOWN
     # Resource limits
     deploy:
       resources:
@@ -224,6 +225,7 @@ services:
     cap_add:
       - SETGID
       - SETUID
+      - CHOWN
     # Resource limits
     deploy:
       resources:

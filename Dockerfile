@@ -39,9 +39,6 @@ RUN mkdir -p /usr/src/app/staticfiles /usr/src/app/media /usr/src/app/celerybeat
 # Make entrypoint executable
 RUN chmod +x /usr/src/app/docker/entrypoint.sh
 
-USER django
-
-
 # Expose port
 EXPOSE 8000
 
