@@ -18,6 +18,10 @@ Fix is two parts:
 1) Start the container as `root` and let `docker/entrypoint.sh` `chown` the mounted volumes, then drop privileges to `django` via `gosu`.
 2) Ensure the services that run the entrypoint have `CAP_CHOWN` (`cap_add: CHOWN`) so the permission fix actually works even with `cap_drop: ALL`.
 
+If you still get blocked by file permissions (common when containers drop `CAP_DAC_OVERRIDE`), you can disable file logging and rely on `docker compose logs`:
+- set `LOG_FILES_ENABLED=0` in `.env` (or your production env),
+- redeploy.
+
 ## Deployment Steps (Run on Production Server)
 
 ```bash

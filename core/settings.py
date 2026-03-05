@@ -250,8 +250,21 @@ AUTH_USER_MODEL = "users.User"
 # Logging configuration
 LOG_LEVEL = env.str("LOG_LEVEL", default="INFO").upper()
 LOG_FORMAT = env.str("LOG_FORMAT", default="text").lower()  # "json" | "text"
-LOG_DIR = BASE_DIR / "logs"
-os.makedirs(LOG_DIR, exist_ok=True)
+LOG_DIR = Path(env.str("LOG_DIR", default=str(BASE_DIR / "logs")))
+
+
+def _log_dir_writable(log_dir: Path) -> bool:
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        probe_path = log_dir / ".write_probe"
+        probe_path.touch(exist_ok=True)
+        probe_path.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
+
+
+LOG_FILES_ENABLED = env.bool("LOG_FILES_ENABLED", default=True) and _log_dir_writable(LOG_DIR)
 
 _json_formatter = {
     "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
@@ -280,30 +293,6 @@ LOGGING = {
             "formatter": "default",
             "level": LOG_LEVEL,
         },
-        "app_file": {
-            "class": "logging.handlers.TimedRotatingFileHandler",
-            "filename": str(LOG_DIR / "app.log"),
-            "when": "midnight",
-            "backupCount": 14,
-            "formatter": "default",
-            "level": LOG_LEVEL,
-        },
-        "requests_file": {
-            "class": "logging.handlers.TimedRotatingFileHandler",
-            "filename": str(LOG_DIR / "requests.log"),
-            "when": "midnight",
-            "backupCount": 14,
-            "formatter": "requests",
-            "level": LOG_LEVEL,
-        },
-        "celery_file": {
-            "class": "logging.handlers.TimedRotatingFileHandler",
-            "filename": str(LOG_DIR / "celery.log"),
-            "when": "midnight",
-            "backupCount": 14,
-            "formatter": "default",
-            "level": LOG_LEVEL,
-        },
         "telegram_admins": {
             "class": "apps.common.logging_handlers.TelegramAdminHandler",
             "level": "ERROR",
@@ -312,12 +301,13 @@ LOGGING = {
     },
     "loggers": {
         "django": {
-            "handlers": ["console", "app_file"],
+            "handlers": ["console"] + (["app_file"] if LOG_FILES_ENABLED else []),
             "level": LOG_LEVEL,
             "propagate": True,
         },
         "django.request": {
-            "handlers": ["console", "requests_file", "app_file", "telegram_admins"],
+            "handlers": ["console", "telegram_admins"]
+            + (["requests_file", "app_file"] if LOG_FILES_ENABLED else []),
             "level": LOG_LEVEL,
             "propagate": False,
         },
@@ -327,17 +317,47 @@ LOGGING = {
             "propagate": False,
         },
         "apps": {
-            "handlers": ["console", "app_file", "telegram_admins"],
+            "handlers": ["console", "telegram_admins"] + (["app_file"] if LOG_FILES_ENABLED else []),
             "level": LOG_LEVEL,
             "propagate": False,
         },
         "celery": {
-            "handlers": ["console", "celery_file", "telegram_admins"],
+            "handlers": ["console", "telegram_admins"] + (["celery_file"] if LOG_FILES_ENABLED else []),
             "level": LOG_LEVEL,
             "propagate": False,
         },
     },
 }
+
+if LOG_FILES_ENABLED:
+    LOGGING["handlers"].update(
+        {
+            "app_file": {
+                "class": "logging.handlers.TimedRotatingFileHandler",
+                "filename": str(LOG_DIR / "app.log"),
+                "when": "midnight",
+                "backupCount": 14,
+                "formatter": "default",
+                "level": LOG_LEVEL,
+            },
+            "requests_file": {
+                "class": "logging.handlers.TimedRotatingFileHandler",
+                "filename": str(LOG_DIR / "requests.log"),
+                "when": "midnight",
+                "backupCount": 14,
+                "formatter": "requests",
+                "level": LOG_LEVEL,
+            },
+            "celery_file": {
+                "class": "logging.handlers.TimedRotatingFileHandler",
+                "filename": str(LOG_DIR / "celery.log"),
+                "when": "midnight",
+                "backupCount": 14,
+                "formatter": "default",
+                "level": LOG_LEVEL,
+            },
+        }
+    )
 
 # Celery logging preferences
 CELERY_WORKER_HIJACK_ROOT_LOGGER = False
